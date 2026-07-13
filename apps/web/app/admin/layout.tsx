@@ -1,0 +1,93 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { useRouter, usePathname } from "next/navigation";
+import { logout } from "@/lib/auth";
+
+const navItems = [
+  { icon: "📊", label: "Dashboard", href: "/admin", id: "dashboard" },
+  { icon: "📄", label: "Documents", href: "/admin/documents", id: "documents" },
+  { icon: "📏", label: "Answer format", href: "/admin/answer-rules", id: "rules" },
+  { icon: "📖", label: "Subjects", href: "/admin/subjects", id: "subjects" },
+  { icon: "👥", label: "Users", href: "/admin/users", id: "users" },
+  { icon: "💬", label: "Feedback", href: "/admin/feedback", id: "feedback" },
+];
+
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const isActive = (href: string) =>
+    href === "/admin" ? pathname === "/admin" : pathname.startsWith(href);
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
+  };
+
+  return (
+    <div className="app-shell flex h-screen overflow-hidden">
+      {open && (
+        <div className="overlay fixed inset-0 z-30 lg:hidden" onClick={() => setOpen(false)} />
+      )}
+
+      <aside
+        className={`sidebar fixed lg:static z-40 h-full w-[248px] flex flex-col transition-transform duration-300 ${
+          open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        }`}
+      >
+        <div className="flex items-center gap-3 px-4 h-16 border-b border-line">
+          <div className="w-9 h-9 rounded-xl glow-ring bg-panel flex items-center justify-center overflow-hidden">
+            <Image src="/logo.png" alt="VibeGPT Logo" width={36} height={36} className="object-cover" />
+          </div>
+          <div>
+            <h1 className="text-sm font-bold leading-none">VibeGPT</h1>
+            <p className="text-[10px] text-brand-accent mt-1">Admin Panel</p>
+          </div>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+          {navItems.map((item) => (
+            <Link
+              key={item.id}
+              href={item.href}
+              onClick={() => setOpen(false)}
+              className={`sidebar-item ${isActive(item.href) ? "active" : ""}`}
+            >
+              <span className="sidebar-icon text-base">{item.icon}</span>
+              <span>{item.label}</span>
+            </Link>
+          ))}
+        </nav>
+
+        <div className="p-3 border-t border-line space-y-1">
+          <Link href="/student/chat" className="sidebar-item">
+            <span className="sidebar-icon text-base">💬</span>
+            <span>Student view</span>
+          </Link>
+          <button onClick={handleLogout} className="sidebar-item w-full text-left">
+            <span className="sidebar-icon text-base">↩</span>
+            <span>Sign out</span>
+          </button>
+        </div>
+      </aside>
+
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="lg:hidden flex items-center gap-3 h-14 px-4 border-b border-line bg-panel">
+          <button
+            onClick={() => setOpen(true)}
+            className="w-9 h-9 rounded-lg bg-panel-2 border border-line flex items-center justify-center"
+            aria-label="Open menu"
+          >
+            ☰
+          </button>
+          <span className="font-bold text-sm">VibeGPT Admin</span>
+        </header>
+        <main className="flex-1 overflow-y-auto">{children}</main>
+      </div>
+    </div>
+  );
+}
