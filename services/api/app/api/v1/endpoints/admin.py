@@ -8,19 +8,21 @@ Dashboard, feedback, audit logs.
 
 from __future__ import annotations
 
+import hashlib
+import uuid
 from datetime import UTC, datetime
-from uuid import UUID
 
-from fastapi import APIRouter, Query, UploadFile, File, Form
+from fastapi import APIRouter, Query, UploadFile, File, Form, HTTPException, Depends
 from sqlalchemy import select, func, and_
 
+from app.core.config import get_settings
 from app.core.dependencies import AdminUser, DbSession
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
 from app.models.academic import (
     AcademicYear, Department, Module, Semester, Subject, StudentSubjectPermission,
 )
-from app.models.document import Document, DocumentProcessingJob, DocumentStatus, ProcessingJobStatus
+from app.models.document import Document, DocumentProcessingJob, DocumentStatus, ProcessingJobStatus, SourceType
 from app.models.question import Feedback, QuestionLog
 from app.models.user import User, UserRole
 from app.models.system import AuditLog
@@ -33,6 +35,7 @@ from app.schemas.academic import (
     UserCreate, UserResponse, UserUpdate,
 )
 from app.schemas.common import IDResponse, MessageResponse
+from app.schemas.document import DocumentUploadResponse, ProcessingJobResponse
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -275,6 +278,138 @@ async def update_user(user_id: UUID, body: UserUpdate, current_user: AdminUser, 
 
 
 # ── Documents ────────────────────────────────────────────────
+
+# Private helpers for upload functionality
+
+def _get_secure_filename(original_filename: str) -> str:
+    import os
+    ext = os.path.splitext(original_filename)[1]
+    unique_id = uuid.uuid4().hex[:12]
+    return f"{unique_id}{ext}"
+
+
+def _validate_file_type(filename: str) -> str:
+    ext = filename.lower().split(".")[-1] if "." in filename else ""
+    mime_map = {
+        "pdf": "application/pdf",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    if ext not in mime_map:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+    return mime_map[ext]
+
+
+@router.post("/documents/upload", response_model=DocumentUploadResponse, status_code=201)
+async def upload_document(
+    file: UploadFile = File(...),
+    subject_id: UUID = Form(...),
+    module_id: UUID | None = Form(None),
+    source_type: str = Form(default="other"),
+    description: str | None = Form(None, max_length=2000),
+    topic: str | None = Form(None, max_length=500),
+    *,
+    current_user: AdminUser,
+    db: DbSession,
+):
+    import os
+    settings = get_settings()
+
+    # Validate extension
+    filename = file.filename or "unknown"
+    ext = filename.lower().split(".")[-1] if "." in filename else ""
+    if ext not in ("pdf", "pptx", "docx", "xlsx"):
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+    mime_type = _validate_file_type(filename)
+
+    # Read file with size enforcement during read
+    CHUNK_SIZE = 1024 * 1024  # 1MB chunks
+    sha256_hash = hashlib.sha256()
+    file_size = 0
+    file_buffer = bytearray()
+    while True:
+        chunk = await file.read(CHUNK_SIZE)
+        if not chunk:
+            break
+        sha256_hash.update(chunk)
+        file_buffer.extend(chunk)
+        file_size += len(chunk)
+        if file_size > settings.max_upload_bytes:
+            raise HTTPException(status_code=413, detail="File exceeds maximum size")
+
+    file_bytes = bytes(file_buffer)
+    file_hash = sha256_hash.hexdigest()
+
+    # Check for duplicates
+    existing = await db.execute(
+        select(Document).where(Document.file_hash == file_hash).where(Document.archived_at == None)
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="Document already exists")
+
+    # Verify subject exists
+    result = await db.execute(select(Subject).where(Subject.id == subject_id))
+    if result.scalar_one_or_none() is None:
+        raise NotFoundError("Subject")
+
+    # Verify module if provided
+    if module_id:
+        result = await db.execute(select(Module).where(Module.id == module_id))
+        if result.scalar_one_or_none() is None:
+            raise NotFoundError("Module")
+
+    # Prepare secure storage path
+    secure_name = _get_secure_filename(filename)
+    storage_path = settings.upload_path / secure_name
+    stored_path_str = str(storage_path)
+
+    doc = None
+    try:
+        source = SourceType(source_type)
+        doc = Document(
+            subject_id=subject_id,
+            module_id=module_id,
+            document_name=filename,
+            original_filename=filename,
+            storage_path=stored_path_str,
+            file_hash=file_hash,
+            mime_type=mime_type,
+            file_size=file_size,
+            source_type=source,
+            description=description,
+            topic=topic,
+            uploaded_by=current_user.id,
+            status=DocumentStatus.PROCESSING,
+        )
+        db.add(doc)
+        await db.flush()
+        await db.refresh(doc)
+
+        job = DocumentProcessingJob(
+            document_id=doc.id,
+            status=ProcessingJobStatus.PENDING,
+            triggered_by=current_user.id,
+        )
+        db.add(job)
+        await db.flush()
+
+        storage_path.write_bytes(file_bytes)
+    except Exception:
+        await db.rollback()
+        if os.path.exists(stored_path_str):
+            os.remove(stored_path_str)
+        raise
+
+    return DocumentUploadResponse(
+        id=doc.id,
+        document_name=doc.document_name,
+        original_filename=doc.original_filename,
+        status=doc.status,
+        source_type=doc.source_type,
+        file_size=doc.file_size,
+    )
+
 
 @router.get("/documents")
 async def list_documents(
