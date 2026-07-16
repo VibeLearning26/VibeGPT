@@ -244,9 +244,14 @@ export default function Dither({
     canvas.style.display = "block";
     // Renders below CSS size; pixelated upscale keeps the retro look crisp.
     canvas.style.imageRendering = "pixelated";
+    // Fade the canvas in once the first frame is drawn — hides WebGL
+    // context/shader-compile latency instead of popping in late.
+    canvas.style.opacity = "0";
+    canvas.style.transition = "opacity 0.5s ease";
     container.appendChild(canvas);
 
     let animationId = 0;
+    let firstFrame = true;
     const currentMouse = [0, 0];
     let targetMouse = [0, 0];
 
@@ -304,6 +309,11 @@ export default function Dither({
       program.uniforms.pixelSize.value = p.pixelSize;
 
       renderer.render({ scene: mesh });
+
+      if (firstFrame) {
+        firstFrame = false;
+        canvas.style.opacity = "1";
+      }
     };
 
     const observer = new ResizeObserver(resize);

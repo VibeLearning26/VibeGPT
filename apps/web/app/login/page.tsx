@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import dynamic from "next/dynamic";
 import { mockLogin } from "@/lib/auth";
-
-// WebGL background — client-only, skipped during SSR.
-const Dither = dynamic(() => import("@/components/ui/Dither"), { ssr: false });
+// Static import: page is a client component and all WebGL code runs in
+// useEffect, so this is SSR-safe — and it avoids the lazy-chunk delay
+// that made the animation pop in late.
+import Dither from "@/components/ui/Dither";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -40,7 +40,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#050505]">
+    <div className="relative h-dvh overflow-hidden bg-[#050505]">
       {/* Animated dither background — red on black */}
       <div className="absolute inset-0">
         <Dither
@@ -65,12 +65,12 @@ export default function LoginPage() {
       </div>
 
       {/* Content */}
-      <div className="relative z-10 min-h-screen flex flex-col items-center justify-center p-6 sm:p-10">
+      <div className="relative z-10 h-full flex flex-col items-center justify-center p-4 sm:p-8">
         <div className="w-full max-w-sm fade-up">
           {/* Logo */}
-          <div className="flex flex-col items-center gap-4 mb-8">
-            <div className="w-14 h-14 rounded-2xl glow-ring flex items-center justify-center bg-panel overflow-hidden">
-              <Image src="/logo.png" alt="VibeGPT Logo" width={56} height={56} className="object-cover" />
+          <div className="flex flex-col items-center gap-3 mb-6">
+            <div className="w-12 h-12 rounded-2xl glow-ring flex items-center justify-center bg-panel overflow-hidden">
+              <Image src="/logo.png" alt="VibeGPT Logo" width={48} height={48} className="object-cover" />
             </div>
             <div className="text-center">
               <span className="text-2xl font-extrabold tracking-tight">VibeGPT</span>
@@ -82,7 +82,7 @@ export default function LoginPage() {
 
           {/* Auth card */}
           <div
-            className="rounded-2xl border border-line p-6 sm:p-8"
+            className="rounded-2xl border border-line p-5 sm:p-6"
             style={{
               background: "rgba(10, 10, 10, 0.78)",
               backdropFilter: "blur(16px)",
@@ -92,10 +92,10 @@ export default function LoginPage() {
             }}
           >
             <h2 className="text-xl font-bold mb-1">Welcome back</h2>
-            <p className="text-sm text-muted mb-6">Sign in to access your study materials</p>
+            <p className="text-sm text-muted mb-5">Sign in to access your study materials</p>
 
             {error && (
-              <div className="mb-5 px-4 py-3 rounded-xl bg-[rgba(255,77,79,0.1)] border border-[rgba(255,77,79,0.3)] text-[var(--color-err)] text-sm fade-in">
+              <div className="mb-4 px-4 py-3 rounded-xl bg-[rgba(255,77,79,0.1)] border border-[rgba(255,77,79,0.3)] text-[var(--color-err)] text-sm fade-in">
                 {error}
               </div>
             )}
@@ -139,7 +139,7 @@ export default function LoginPage() {
             </form>
 
             {/* Demo credentials */}
-            <div className="mt-6 pt-5 border-t border-line-soft">
+            <div className="mt-5 pt-4 border-t border-line-soft">
               <p className="text-xs font-semibold text-muted mb-3">Demo accounts — tap to fill</p>
               <div className="space-y-2">
                 <button
@@ -160,7 +160,7 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <p className="text-center text-xs text-faint mt-6">© 2026 VibeGPT · Campus Study Agent</p>
+          <p className="text-center text-xs text-faint mt-5">© 2026 VibeGPT · Campus Study Agent</p>
         </div>
       </div>
     </div>
