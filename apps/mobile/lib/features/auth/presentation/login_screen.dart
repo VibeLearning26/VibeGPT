@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_logo.dart';
+import '../../../core/widgets/dither_background.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -73,20 +74,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       backgroundColor: AppTheme.bg,
       body: Stack(
         children: [
-          // Subtle red glow in top-right
-          Positioned(
-            top: -100,
-            right: -100,
-            child: Container(
-              width: 320,
-              height: 320,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    AppTheme.brand.withValues(alpha: 0.07),
-                    Colors.transparent,
-                  ],
+          // Animated dither background — red on black (matches web login).
+          // Shader is pre-warmed in main(), so it starts with no lag.
+          const Positioned.fill(
+            child: DitherBackground(
+              waveColor: Color(0xFFE60A14),
+              waveSpeed: 0.05,
+              waveFrequency: 3,
+              waveAmplitude: 0.3,
+              colorNum: 4,
+              pixelSize: 2,
+            ),
+          ),
+          // Vignette so the form area stays readable over the animation.
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    colors: [
+                      AppTheme.bg.withValues(alpha: 0.35),
+                      AppTheme.bg.withValues(alpha: 0.75),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -112,7 +122,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        const Text('Welcome back',
+                        // Auth card — translucent panel over the animated
+                        // background (mirrors the web login's glass card).
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0A0A0A).withValues(alpha: 0.82),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: AppTheme.line),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppTheme.brand.withValues(alpha: 0.18),
+                                blurRadius: 60,
+                                spreadRadius: -20,
+                                offset: const Offset(0, 24),
+                              ),
+                              const BoxShadow(
+                                color: Color(0x99000000),
+                                blurRadius: 40,
+                                offset: Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text('Welcome back',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: AppTheme.fg,
@@ -239,6 +274,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 password: 'admin123',
                                 badgeColor: AppTheme.brandDim,
                               ),
+                            ],
+                          ),
+                        ),
                             ],
                           ),
                         ),

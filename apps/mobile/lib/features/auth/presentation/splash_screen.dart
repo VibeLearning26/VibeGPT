@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
@@ -15,6 +17,7 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
+  Timer? _navTimer;
 
   @override
   void initState() {
@@ -31,8 +34,8 @@ class _SplashScreenState extends State<SplashScreen>
     );
     _controller.forward();
 
-    // Navigate after delay
-    Future.delayed(const Duration(seconds: 2), () {
+    // Navigate after delay (cancelled on dispose so no timer leaks in tests)
+    _navTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) {
         context.go('/login');
       }
@@ -41,6 +44,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
+    _navTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
