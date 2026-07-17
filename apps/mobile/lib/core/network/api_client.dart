@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'dart:developer' as developer;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../constants/api_constants.dart';
@@ -12,11 +13,11 @@ final dioProvider = Provider<Dio>((ref) {
     headers: {'Content-Type': 'application/json'},
   ));
 
-  dio.interceptors.add(AuthInterceptor(ref));
+  dio.interceptors.add(AuthInterceptor());
   dio.interceptors.add(LogInterceptor(
     requestBody: true,
     responseBody: true,
-    logPrint: (obj) => print('[DIO] $obj'),
+    logPrint: (obj) => developer.log('[DIO] $obj'),
   ));
 
   return dio;
@@ -24,11 +25,10 @@ final dioProvider = Provider<Dio>((ref) {
 
 /// Auth interceptor: attaches access token and handles 401 refresh
 class AuthInterceptor extends Interceptor {
-  final Ref _ref;
   static const _storage = FlutterSecureStorage();
   bool _isRefreshing = false;
 
-  AuthInterceptor(this._ref);
+  AuthInterceptor();
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
