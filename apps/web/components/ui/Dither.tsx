@@ -196,7 +196,19 @@ export default function Dither({
     enableMouseInteraction,
     mouseRadius,
   });
-  propsRef.current = {
+  useEffect(() => {
+    propsRef.current = {
+      waveSpeed,
+      waveFrequency,
+      waveAmplitude,
+      waveColor,
+      colorNum,
+      pixelSize,
+      disableAnimation,
+      enableMouseInteraction,
+      mouseRadius,
+    };
+  }, [
     waveSpeed,
     waveFrequency,
     waveAmplitude,
@@ -206,7 +218,7 @@ export default function Dither({
     disableAnimation,
     enableMouseInteraction,
     mouseRadius,
-  };
+  ]);
 
   useEffect(() => {
     const container = containerRef.current;
