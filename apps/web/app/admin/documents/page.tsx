@@ -81,7 +81,7 @@ function SubjectUploadCard({ subject }: { subject: Subject }) {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const module =
+  const selectedModule =
     subject.modules.find((m) => m.id === moduleId) ?? subject.modules[0];
 
   const addFiles = (files: FileList | File[]) => {
@@ -91,7 +91,7 @@ function SubjectUploadCard({ subject }: { subject: Subject }) {
         id,
         name: f.name,
         size: `${(f.size / 1024 / 1024).toFixed(1)} MB`,
-        module: module.name,
+        module: selectedModule.name,
         progress: 0,
         status: "uploading",
       };
@@ -189,7 +189,7 @@ function SubjectUploadCard({ subject }: { subject: Subject }) {
         </p>
         <p className="text-xs text-faint mt-1">
           PDF, PPT, DOCX, XLSX · uploading to{" "}
-          <span className="text-brand-accent">{module.name}</span>
+          <span className="text-brand-accent">{selectedModule.name}</span>
         </p>
       </div>
 
