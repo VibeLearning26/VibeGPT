@@ -9,10 +9,11 @@ Dashboard, feedback, audit logs.
 from __future__ import annotations
 
 import hashlib
-import uuid
+from uuid import UUID
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Query, UploadFile, File, Form, HTTPException, Depends
+from typing import Annotated
 from sqlalchemy import select, func, and_
 
 from app.core.config import get_settings
@@ -35,7 +36,7 @@ from app.schemas.academic import (
     UserCreate, UserResponse, UserUpdate,
 )
 from app.schemas.common import IDResponse, MessageResponse
-from app.schemas.document import DocumentUploadResponse, ProcessingJobResponse
+from app.schemas.document import DocumentUploadResponse, ProcessingJobResponse, DocumentDetailResponse
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -182,10 +183,11 @@ async def create_subject(body: SubjectCreate, current_user: AdminUser, db: DbSes
 
 
 @router.get("/subjects", response_model=list[SubjectResponse])
-async def list_subjects(current_user: AdminUser, db: DbSession):
-    result = await db.execute(
-        select(Subject).where(Subject.archived_at == None).order_by(Subject.name)
-    )
+async def list_subjects(current_user: AdminUser, db: DbSession, semester_id: UUID | None = None):
+    query = select(Subject).where(Subject.archived_at == None)
+    if semester_id:
+        query = query.where(Subject.semester_id == semester_id)
+    result = await db.execute(query.order_by(Subject.name))
     return [SubjectResponse.model_validate(s) for s in result.scalars().all()]
 
 
@@ -283,6 +285,7 @@ async def update_user(user_id: UUID, body: UserUpdate, current_user: AdminUser, 
 
 def _get_secure_filename(original_filename: str) -> str:
     import os
+    import uuid
     ext = os.path.splitext(original_filename)[1]
     unique_id = uuid.uuid4().hex[:12]
     return f"{unique_id}{ext}"
@@ -440,6 +443,16 @@ async def list_documents(
     ]
 
 
+@router.get("/documents/{document_id}", response_model=DocumentDetailResponse)
+async def get_document(document_id: UUID, current_user: AdminUser, db: DbSession):
+    """Get detailed document information."""
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise NotFoundError("Document")
+    return DocumentDetailResponse.model_validate(doc)
+
+
 @router.post("/documents/{document_id}/publish", response_model=MessageResponse)
 async def publish_document(document_id: UUID, current_user: AdminUser, db: DbSession):
     result = await db.execute(select(Document).where(Document.id == document_id))
@@ -465,6 +478,63 @@ async def archive_document(document_id: UUID, current_user: AdminUser, db: DbSes
     doc.archived_at = datetime.now(UTC)
     await db.flush()
     return MessageResponse(message="Document archived")
+
+
+# ── Document Processing Job Status ─────────────────────────────
+
+@router.get("/documents/{document_id}/job", response_model=ProcessingJobResponse)
+async def get_document_job(document_id: UUID, current_user: AdminUser, db: DbSession):
+    """Get processing job status for a document."""
+    result = await db.execute(
+        select(DocumentProcessingJob)
+        .where(DocumentProcessingJob.document_id == document_id)
+        .order_by(DocumentProcessingJob.created_at.desc())
+        .limit(1)
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise NotFoundError("Processing job")
+    return ProcessingJobResponse.model_validate(job)
+
+
+@router.post("/documents/{document_id}/retry", response_model=MessageResponse)
+async def retry_document(document_id: UUID, current_user: AdminUser, db: DbSession):
+    """Retry a failed document processing job."""
+    # Get document
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise NotFoundError("Document")
+    
+    if doc.status != DocumentStatus.FAILED:
+        raise ConflictError(f"Can only retry failed documents (current: {doc.status.value})")
+    
+    # Get the latest job
+    result = await db.execute(
+        select(DocumentProcessingJob)
+        .where(DocumentProcessingJob.document_id == document_id)
+        .order_by(DocumentProcessingJob.created_at.desc())
+        .limit(1)
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise NotFoundError("Processing job")
+    
+    # Reset for retry
+    doc.status = DocumentStatus.UPLOADED
+    doc.processing_error = None
+    
+    job.status = ProcessingJobStatus.PENDING
+    job.retry_count = 0
+    job.error_message = None
+    job.error_details = None
+    job.started_at = None
+    job.completed_at = None
+    job.chunks_created = 0
+    job.triggered_by = current_user.id
+    
+    await db.flush()
+    return MessageResponse(message="Document queued for reprocessing")
 
 
 # ── Feedback ─────────────────────────────────────────────────

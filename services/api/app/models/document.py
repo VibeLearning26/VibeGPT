@@ -23,12 +23,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from pgvector.sqlalchemy import Vector
 
 from app.database.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
-
-# Embedding dimensionality for the all-MiniLM-L6-v2 model.
-EMBEDDING_DIM = 384
 
 
 class DocumentStatus(str, enum.Enum):
@@ -160,7 +156,7 @@ class DocumentChunk(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    # embedding stored via pgvector — column added in migration with: Vector(384)
+    embedding: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships

@@ -13,7 +13,9 @@ from __future__ import annotations
 import hashlib
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Response, Request
+from fastapi import APIRouter, Request, HTTPException
+import sys
+from fastapi.responses import JSONResponse
 from sqlalchemy import select, update
 
 from app.core.dependencies import CurrentUser, DbSession
@@ -39,7 +41,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: DbSession, response: Response):
+async def login(body: LoginRequest, db: DbSession):
     """Authenticate with email and password. Returns access token and sets refresh cookie."""
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
@@ -72,21 +74,27 @@ async def login(body: LoginRequest, db: DbSession, response: Response):
 
     await db.flush()
 
-    # Set refresh token as HttpOnly cookie
+    # Create response with cookie
+    response = JSONResponse(
+        content={
+            "access_token": access_token,
+            "token_type": "bearer",
+            "expires_in": 30 * 60,
+            "role": user.role.value,
+        },
+        status_code=200,
+    )
+    print(f"DEBUG: response content = {response.body}", file=sys.stderr, flush=True)
     response.set_cookie(
         key="refresh_token",
         value=refresh_token_str,
         httponly=True,
-        secure=False,  # Set True in production via HTTPS
+        secure=False,
         samesite="lax",
-        max_age=7 * 24 * 60 * 60,  # 7 days
+        max_age=7 * 24 * 60 * 60,
         path="/api/v1/auth",
     )
-
-    return TokenResponse(
-        access_token=access_token,
-        expires_in=30 * 60,  # 30 minutes in seconds
-    )
+    return response
 
 
 @router.post("/refresh", response_model=TokenResponse)
