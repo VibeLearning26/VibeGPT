@@ -208,17 +208,7 @@ export default function Dither({
       enableMouseInteraction,
       mouseRadius,
     };
-  }, [
-    waveSpeed,
-    waveFrequency,
-    waveAmplitude,
-    waveColor,
-    colorNum,
-    pixelSize,
-    disableAnimation,
-    enableMouseInteraction,
-    mouseRadius,
-  ]);
+  });
 
   useEffect(() => {
     const container = containerRef.current;
