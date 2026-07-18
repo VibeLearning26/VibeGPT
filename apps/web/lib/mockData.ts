@@ -262,17 +262,17 @@ export function routeQuestion(question: string, sem: string): RouteResult | null
       .filter((w) => w.length > 3)
       .reduce((acc, w) => (q.includes(w) ? acc + 1 : acc), 0);
 
-  let module = best.modules[0];
-  let moduleScore = scoreModule(module);
+  let bestModule = best.modules[0];
+  let moduleScore = scoreModule(bestModule);
   for (const m of best.modules.slice(1)) {
     const score = scoreModule(m);
     if (score > moduleScore) {
-      module = m;
+      bestModule = m;
       moduleScore = score;
     }
   }
 
-  return { subject: best, module, confidence: bestScore > 0 ? "high" : "low" };
+  return { subject: best, module: bestModule, confidence: bestScore > 0 ? "high" : "low" };
 }
 
 // ── Mock structured answer generator ────────────────────────────

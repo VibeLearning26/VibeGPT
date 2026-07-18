@@ -49,3 +49,6 @@ flutter:
 
   assets:
     - assets/images/
+
+  shaders:
+    - shaders/dither.frag
