@@ -107,6 +107,7 @@ async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: 
     if perm.scalar_one_or_none() is None:
         raise AuthorizationError("You do not have access to this subject")
 
+
     service = AnswerService()
     return await service.generate_answer(
         db=db,
@@ -196,7 +197,9 @@ async def get_history_detail(question_id: UUID, current_user: StudentUser, db: D
         sources=sources,
         model=log.model_name,
         processing_ms=log.processing_time_ms,
-        validation=ValidationResult(**(log.validation_result or {})) if log.validation_result else None,
+        validation=ValidationResult(**(log.validation_result or {}))
+        if log.validation_result
+        else None,
         created_at=log.created_at,
     )
 
@@ -258,7 +261,10 @@ async def submit_feedback(body: FeedbackRequest, current_user: StudentUser, db: 
     # Check for existing feedback
     existing = await db.execute(
         select(Feedback).where(
-            and_(Feedback.question_log_id == body.question_log_id, Feedback.user_id == current_user.id)
+            and_(
+                Feedback.question_log_id == body.question_log_id,
+                Feedback.user_id == current_user.id,
+            )
         )
     )
     if existing.scalar_one_or_none() is not None:
@@ -281,7 +287,13 @@ async def get_saved_answers(current_user: StudentUser, db: DbSession):
     """Get all saved/bookmarked answers."""
     result = await db.execute(
         select(QuestionLog)
-        .join(SavedAnswer, and_(SavedAnswer.question_log_id == QuestionLog.id, SavedAnswer.user_id == current_user.id))
+        .join(
+            SavedAnswer,
+            and_(
+                SavedAnswer.question_log_id == QuestionLog.id,
+                SavedAnswer.user_id == current_user.id,
+            ),
+        )
         .order_by(SavedAnswer.created_at.desc())
         .options(selectinload(QuestionLog.subject), selectinload(QuestionLog.module))
     )

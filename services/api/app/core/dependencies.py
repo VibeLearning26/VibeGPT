@@ -40,8 +40,8 @@ async def get_current_user(
         if user_id is None:
             raise AuthenticationError("Token missing subject")
 
-    except JWTError as err:
-        raise AuthenticationError("Invalid or expired token") from err
+    except JWTError as e:
+        raise AuthenticationError("Invalid or expired token") from e
 
     result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
     user = result.scalar_one_or_none()

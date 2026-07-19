@@ -9,8 +9,8 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -25,11 +25,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
 
-# Embedding dimensionality for the all-MiniLM-L6-v2 model.
-EMBEDDING_DIM = 384
+if TYPE_CHECKING:
+    from app.models.academic import AcademicYear, Module, Subject
+    from app.models.user import User
 
 
-class DocumentStatus(str, enum.Enum):
+class DocumentStatus(enum.StrEnum):
     UPLOADED = "uploaded"
     PROCESSING = "processing"
     NEEDS_REVIEW = "needs_review"
@@ -39,7 +40,7 @@ class DocumentStatus(str, enum.Enum):
     ARCHIVED = "archived"
 
 
-class SourceType(str, enum.Enum):
+class SourceType(enum.StrEnum):
     PDF_NOTES = "pdf_notes"
     PPTX_PRESENTATION = "pptx_presentation"
     DOCX_NOTES = "docx_notes"
@@ -50,7 +51,7 @@ class SourceType(str, enum.Enum):
     OTHER = "other"
 
 
-class ProcessingJobStatus(str, enum.Enum):
+class ProcessingJobStatus(enum.StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -81,7 +82,9 @@ class Document(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         nullable=False,
         default=SourceType.OTHER,
     )
-    priority: Mapped[int] = mapped_column(Integer, default=5, nullable=False)  # 1=highest, 10=lowest
+    priority: Mapped[int] = mapped_column(
+        Integer, default=5, nullable=False
+    )  # 1=highest, 10=lowest
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     status: Mapped[DocumentStatus] = mapped_column(
         Enum(DocumentStatus, name="document_status", create_constraint=True),
@@ -103,11 +106,11 @@ class Document(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
-    subject: Mapped["Subject"] = relationship(back_populates="documents")
-    module: Mapped["Module | None"] = relationship()
-    academic_year: Mapped["AcademicYear | None"] = relationship(back_populates="documents")
-    uploader: Mapped["User"] = relationship(foreign_keys=[uploaded_by])
-    publisher: Mapped["User | None"] = relationship(foreign_keys=[published_by])
+    subject: Mapped[Subject] = relationship(back_populates="documents")
+    module: Mapped[Module | None] = relationship()
+    academic_year: Mapped[AcademicYear | None] = relationship(back_populates="documents")
+    uploader: Mapped[User] = relationship(foreign_keys=[uploaded_by])
+    publisher: Mapped[User | None] = relationship(foreign_keys=[published_by])
     versions: Mapped[list[DocumentVersion]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )
@@ -126,7 +129,10 @@ class DocumentVersion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "document_versions"
 
     document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     file_hash: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -145,7 +151,10 @@ class DocumentChunk(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "document_chunks"
 
     document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     document_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("document_versions.id"), nullable=True
@@ -158,7 +167,7 @@ class DocumentChunk(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships
@@ -172,7 +181,10 @@ class DocumentProcessingJob(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "document_processing_jobs"
 
     document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     status: Mapped[ProcessingJobStatus] = mapped_column(
         Enum(ProcessingJobStatus, name="processing_job_status", create_constraint=True),

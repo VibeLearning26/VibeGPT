@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 # ── Department ───────────────────────────────────────────────
 
+
 class DepartmentCreate(BaseModel):
     name: str = Field(min_length=2, max_length=255)
     code: str = Field(min_length=1, max_length=20)
@@ -37,6 +38,7 @@ class DepartmentResponse(BaseModel):
 
 # ── Semester ─────────────────────────────────────────────────
 
+
 class SemesterCreate(BaseModel):
     number: int = Field(ge=1, le=12)
     name: str = Field(min_length=2, max_length=100)
@@ -58,6 +60,7 @@ class SemesterResponse(BaseModel):
 
 
 # ── Academic Year ────────────────────────────────────────────
+
 
 class AcademicYearCreate(BaseModel):
     name: str = Field(min_length=4, max_length=50)
@@ -85,6 +88,7 @@ class AcademicYearResponse(BaseModel):
 
 
 # ── Subject ──────────────────────────────────────────────────
+
 
 class SubjectCreate(BaseModel):
     name: str = Field(min_length=2, max_length=255)
@@ -121,6 +125,7 @@ class SubjectResponse(BaseModel):
 
 # ── Module ───────────────────────────────────────────────────
 
+
 class ModuleCreate(BaseModel):
     name: str = Field(min_length=2, max_length=255)
     number: int = Field(ge=1)
@@ -147,6 +152,7 @@ class ModuleResponse(BaseModel):
 
 
 # ── User Management ─────────────────────────────────────────
+
 
 class UserCreate(BaseModel):
     email: str = Field(max_length=320)
