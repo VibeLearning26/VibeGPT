@@ -7,12 +7,18 @@ Tables: departments, semesters, academic_years, subjects, modules, student_subje
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
+
+if TYPE_CHECKING:
+    from app.models.answer_rule import AnswerRule
+    from app.models.document import Document
+    from app.models.user import StudentSubjectPermission, User
 
 
 class Department(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
@@ -37,9 +43,7 @@ class Semester(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("number", name="uq_semester_number"),
-    )
+    __table_args__ = (UniqueConstraint("number", name="uq_semester_number"),)
 
     # Relationships
     subjects: Mapped[list[Subject]] = relationship(back_populates="semester")
@@ -58,7 +62,7 @@ class AcademicYear(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships
-    documents: Mapped[list["Document"]] = relationship(back_populates="academic_year")
+    documents: Mapped[list[Document]] = relationship(back_populates="academic_year")
 
     def __repr__(self) -> str:
         return f"<AcademicYear {self.name}>"
@@ -86,10 +90,12 @@ class Subject(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     # Relationships
     department: Mapped[Department] = relationship(back_populates="subjects")
     semester: Mapped[Semester] = relationship(back_populates="subjects")
-    modules: Mapped[list[Module]] = relationship(back_populates="subject", cascade="all, delete-orphan")
-    documents: Mapped[list["Document"]] = relationship(back_populates="subject")
-    answer_rules: Mapped[list["AnswerRule"]] = relationship(back_populates="subject")
-    student_permissions: Mapped[list["StudentSubjectPermission"]] = relationship(
+    modules: Mapped[list[Module]] = relationship(
+        back_populates="subject", cascade="all, delete-orphan"
+    )
+    documents: Mapped[list[Document]] = relationship(back_populates="subject")
+    answer_rules: Mapped[list[AnswerRule]] = relationship(back_populates="subject")
+    student_permissions: Mapped[list[StudentSubjectPermission]] = relationship(
         back_populates="subject"
     )
 
@@ -104,13 +110,14 @@ class Module(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     number: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     subject_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("subjects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("subject_id", "number", name="uq_module_subject_number"),
-    )
+    __table_args__ = (UniqueConstraint("subject_id", "number", name="uq_module_subject_number"),)
 
     # Relationships
     subject: Mapped[Subject] = relationship(back_populates="modules")
@@ -126,14 +133,15 @@ class StudentSubjectPermission(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     subject_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("subjects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("user_id", "subject_id", name="uq_student_subject"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "subject_id", name="uq_student_subject"),)
 
     # Relationships
-    user: Mapped["User"] = relationship(back_populates="subject_permissions")
+    user: Mapped[User] = relationship(back_populates="subject_permissions")
     subject: Mapped[Subject] = relationship(back_populates="student_permissions")

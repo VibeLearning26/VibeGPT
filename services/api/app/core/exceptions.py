@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import HTTPException, status
 
 
-class VibeGPTException(Exception):  # noqa: N818
+class VibeGPTError(Exception):
     """Base exception for VibeGPT."""
 
     def __init__(self, message: str = "An error occurred"):

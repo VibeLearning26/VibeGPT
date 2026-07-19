@@ -8,12 +8,15 @@ Dashboard, feedback, audit logs.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 
+from app.core.config import get_settings
 from app.core.dependencies import AdminUser, DbSession
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
@@ -24,7 +27,13 @@ from app.models.academic import (
     Semester,
     Subject,
 )
-from app.models.document import Document, DocumentProcessingJob, DocumentStatus, ProcessingJobStatus
+from app.models.document import (
+    Document,
+    DocumentProcessingJob,
+    DocumentStatus,
+    ProcessingJobStatus,
+    SourceType,
+)
 from app.models.question import Feedback, QuestionLog
 from app.models.system import AuditLog
 from app.models.user import User, UserRole
@@ -46,11 +55,17 @@ from app.schemas.academic import (
     UserUpdate,
 )
 from app.schemas.common import MessageResponse
+from app.schemas.document import (
+    DocumentDetailResponse,
+    DocumentUploadResponse,
+    ProcessingJobResponse,
+)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
 # ── Dashboard ────────────────────────────────────────────────
+
 
 @router.get("/dashboard")
 async def get_dashboard(current_user: AdminUser, db: DbSession):
@@ -58,16 +73,21 @@ async def get_dashboard(current_user: AdminUser, db: DbSession):
     today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
     published_docs = await db.execute(
-        select(func.count()).select_from(Document).where(Document.status == DocumentStatus.PUBLISHED)
+        select(func.count())
+        .select_from(Document)
+        .where(Document.status == DocumentStatus.PUBLISHED)
     )
     pending_docs = await db.execute(
         select(func.count()).select_from(Document).where(Document.status == DocumentStatus.UPLOADED)
     )
     review_docs = await db.execute(
-        select(func.count()).select_from(Document).where(Document.status == DocumentStatus.NEEDS_REVIEW)
+        select(func.count())
+        .select_from(Document)
+        .where(Document.status == DocumentStatus.NEEDS_REVIEW)
     )
     failed_jobs = await db.execute(
-        select(func.count()).select_from(DocumentProcessingJob)
+        select(func.count())
+        .select_from(DocumentProcessingJob)
         .where(DocumentProcessingJob.status == ProcessingJobStatus.FAILED)
     )
     total_students = await db.execute(
@@ -97,6 +117,7 @@ async def get_dashboard(current_user: AdminUser, db: DbSession):
 
 # ── Departments CRUD ─────────────────────────────────────────
 
+
 @router.post("/departments", response_model=DepartmentResponse, status_code=201)
 async def create_department(body: DepartmentCreate, current_user: AdminUser, db: DbSession):
     existing = await db.execute(select(Department).where(Department.code == body.code))
@@ -119,7 +140,9 @@ async def list_departments(current_user: AdminUser, db: DbSession):
 
 
 @router.patch("/departments/{dept_id}", response_model=DepartmentResponse)
-async def update_department(dept_id: UUID, body: DepartmentUpdate, current_user: AdminUser, db: DbSession):
+async def update_department(
+    dept_id: UUID, body: DepartmentUpdate, current_user: AdminUser, db: DbSession
+):
     result = await db.execute(select(Department).where(Department.id == dept_id))
     dept = result.scalar_one_or_none()
     if not dept:
@@ -144,6 +167,7 @@ async def archive_department(dept_id: UUID, current_user: AdminUser, db: DbSessi
 
 # ── Semesters CRUD ───────────────────────────────────────────
 
+
 @router.post("/semesters", response_model=SemesterResponse, status_code=201)
 async def create_semester(body: SemesterCreate, current_user: AdminUser, db: DbSession):
     sem = Semester(**body.model_dump())
@@ -163,6 +187,7 @@ async def list_semesters(current_user: AdminUser, db: DbSession):
 
 # ── Academic Years CRUD ──────────────────────────────────────
 
+
 @router.post("/academic-years", response_model=AcademicYearResponse, status_code=201)
 async def create_academic_year(body: AcademicYearCreate, current_user: AdminUser, db: DbSession):
     ay = AcademicYear(**body.model_dump())
@@ -175,12 +200,15 @@ async def create_academic_year(body: AcademicYearCreate, current_user: AdminUser
 @router.get("/academic-years", response_model=list[AcademicYearResponse])
 async def list_academic_years(current_user: AdminUser, db: DbSession):
     result = await db.execute(
-        select(AcademicYear).where(AcademicYear.archived_at is None).order_by(AcademicYear.start_year.desc())
+        select(AcademicYear)
+        .where(AcademicYear.archived_at is None)
+        .order_by(AcademicYear.start_year.desc())
     )
     return [AcademicYearResponse.model_validate(ay) for ay in result.scalars().all()]
 
 
 # ── Subjects CRUD ────────────────────────────────────────────
+
 
 @router.post("/subjects", response_model=SubjectResponse, status_code=201)
 async def create_subject(body: SubjectCreate, current_user: AdminUser, db: DbSession):
@@ -192,15 +220,18 @@ async def create_subject(body: SubjectCreate, current_user: AdminUser, db: DbSes
 
 
 @router.get("/subjects", response_model=list[SubjectResponse])
-async def list_subjects(current_user: AdminUser, db: DbSession):
-    result = await db.execute(
-        select(Subject).where(Subject.archived_at is None).order_by(Subject.name)
-    )
+async def list_subjects(current_user: AdminUser, db: DbSession, semester_id: UUID | None = None):
+    query = select(Subject).where(Subject.archived_at is None)
+    if semester_id:
+        query = query.where(Subject.semester_id == semester_id)
+    result = await db.execute(query.order_by(Subject.name))
     return [SubjectResponse.model_validate(s) for s in result.scalars().all()]
 
 
 @router.patch("/subjects/{subject_id}", response_model=SubjectResponse)
-async def update_subject(subject_id: UUID, body: SubjectUpdate, current_user: AdminUser, db: DbSession):
+async def update_subject(
+    subject_id: UUID, body: SubjectUpdate, current_user: AdminUser, db: DbSession
+):
     result = await db.execute(select(Subject).where(Subject.id == subject_id))
     subj = result.scalar_one_or_none()
     if not subj:
@@ -213,6 +244,7 @@ async def update_subject(subject_id: UUID, body: SubjectUpdate, current_user: Ad
 
 
 # ── Modules CRUD ─────────────────────────────────────────────
+
 
 @router.post("/modules", response_model=ModuleResponse, status_code=201)
 async def create_module(body: ModuleCreate, current_user: AdminUser, db: DbSession):
@@ -233,6 +265,7 @@ async def list_modules(current_user: AdminUser, db: DbSession, subject_id: UUID 
 
 
 # ── Users CRUD ───────────────────────────────────────────────
+
 
 @router.post("/users", response_model=UserResponse, status_code=201)
 async def create_user(body: UserCreate, current_user: AdminUser, db: DbSession):
@@ -289,6 +322,142 @@ async def update_user(user_id: UUID, body: UserUpdate, current_user: AdminUser, 
 
 # ── Documents ────────────────────────────────────────────────
 
+# Private helpers for upload functionality
+
+
+def _get_secure_filename(original_filename: str) -> str:
+    import os
+    import uuid
+
+    ext = os.path.splitext(original_filename)[1]
+    unique_id = uuid.uuid4().hex[:12]
+    return f"{unique_id}{ext}"
+
+
+def _validate_file_type(filename: str) -> str:
+    ext = filename.lower().split(".")[-1] if "." in filename else ""
+    mime_map = {
+        "pdf": "application/pdf",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    if ext not in mime_map:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+    return mime_map[ext]
+
+
+@router.post("/documents/upload", response_model=DocumentUploadResponse, status_code=201)
+async def upload_document(
+    *,
+    current_user: AdminUser,
+    db: DbSession,
+    file: Annotated[UploadFile, File()],
+    subject_id: Annotated[UUID, Form()],
+    module_id: Annotated[UUID | None, Form()] = None,
+    source_type: Annotated[str, Form()] = "other",
+    description: Annotated[str | None, Form(max_length=2000)] = None,
+    topic: Annotated[str | None, Form(max_length=500)] = None,
+):
+    import os
+
+    settings = get_settings()
+
+    # Validate extension
+    filename = file.filename or "unknown"
+    ext = filename.lower().split(".")[-1] if "." in filename else ""
+    if ext not in ("pdf", "pptx", "docx", "xlsx"):
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+    mime_type = _validate_file_type(filename)
+
+    # Read file with size enforcement during read
+    chunk_size = 1024 * 1024  # 1MB chunks
+    sha256_hash = hashlib.sha256()
+    file_size = 0
+    file_buffer = bytearray()
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        sha256_hash.update(chunk)
+        file_buffer.extend(chunk)
+        file_size += len(chunk)
+        if file_size > settings.max_upload_bytes:
+            raise HTTPException(status_code=413, detail="File exceeds maximum size")
+
+    file_bytes = bytes(file_buffer)
+    file_hash = sha256_hash.hexdigest()
+
+    # Check for duplicates
+    existing = await db.execute(
+        select(Document).where(Document.file_hash == file_hash).where(Document.archived_at is None)
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="Document already exists")
+
+    # Verify subject exists
+    result = await db.execute(select(Subject).where(Subject.id == subject_id))
+    if result.scalar_one_or_none() is None:
+        raise NotFoundError("Subject")
+
+    # Verify module if provided
+    if module_id:
+        result = await db.execute(select(Module).where(Module.id == module_id))
+        if result.scalar_one_or_none() is None:
+            raise NotFoundError("Module")
+
+    # Prepare secure storage path
+    secure_name = _get_secure_filename(filename)
+    storage_path = settings.upload_path / secure_name
+    stored_path_str = str(storage_path)
+
+    doc = None
+    try:
+        source = SourceType(source_type)
+        doc = Document(
+            subject_id=subject_id,
+            module_id=module_id,
+            document_name=filename,
+            original_filename=filename,
+            storage_path=stored_path_str,
+            file_hash=file_hash,
+            mime_type=mime_type,
+            file_size=file_size,
+            source_type=source,
+            description=description,
+            topic=topic,
+            uploaded_by=current_user.id,
+            status=DocumentStatus.PROCESSING,
+        )
+        db.add(doc)
+        await db.flush()
+        await db.refresh(doc)
+
+        job = DocumentProcessingJob(
+            document_id=doc.id,
+            status=ProcessingJobStatus.PENDING,
+            triggered_by=current_user.id,
+        )
+        db.add(job)
+        await db.flush()
+
+        storage_path.write_bytes(file_bytes)
+    except Exception:
+        await db.rollback()
+        if os.path.exists(stored_path_str):
+            os.remove(stored_path_str)
+        raise
+
+    return DocumentUploadResponse(
+        id=doc.id,
+        document_name=doc.document_name,
+        original_filename=doc.original_filename,
+        status=doc.status,
+        source_type=doc.source_type,
+        file_size=doc.file_size,
+    )
+
+
 @router.get("/documents")
 async def list_documents(
     current_user: AdminUser,
@@ -318,6 +487,16 @@ async def list_documents(
     ]
 
 
+@router.get("/documents/{document_id}", response_model=DocumentDetailResponse)
+async def get_document(document_id: UUID, current_user: AdminUser, db: DbSession):
+    """Get detailed document information."""
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise NotFoundError("Document")
+    return DocumentDetailResponse.model_validate(doc)
+
+
 @router.post("/documents/{document_id}/publish", response_model=MessageResponse)
 async def publish_document(document_id: UUID, current_user: AdminUser, db: DbSession):
     result = await db.execute(select(Document).where(Document.id == document_id))
@@ -345,7 +524,66 @@ async def archive_document(document_id: UUID, current_user: AdminUser, db: DbSes
     return MessageResponse(message="Document archived")
 
 
+# ── Document Processing Job Status ─────────────────────────────
+
+
+@router.get("/documents/{document_id}/job", response_model=ProcessingJobResponse)
+async def get_document_job(document_id: UUID, current_user: AdminUser, db: DbSession):
+    """Get processing job status for a document."""
+    result = await db.execute(
+        select(DocumentProcessingJob)
+        .where(DocumentProcessingJob.document_id == document_id)
+        .order_by(DocumentProcessingJob.created_at.desc())
+        .limit(1)
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise NotFoundError("Processing job")
+    return ProcessingJobResponse.model_validate(job)
+
+
+@router.post("/documents/{document_id}/retry", response_model=MessageResponse)
+async def retry_document(document_id: UUID, current_user: AdminUser, db: DbSession):
+    """Retry a failed document processing job."""
+    # Get document
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise NotFoundError("Document")
+
+    if doc.status != DocumentStatus.FAILED:
+        raise ConflictError(f"Can only retry failed documents (current: {doc.status.value})")
+
+    # Get the latest job
+    result = await db.execute(
+        select(DocumentProcessingJob)
+        .where(DocumentProcessingJob.document_id == document_id)
+        .order_by(DocumentProcessingJob.created_at.desc())
+        .limit(1)
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise NotFoundError("Processing job")
+
+    # Reset for retry
+    doc.status = DocumentStatus.UPLOADED
+    doc.processing_error = None
+
+    job.status = ProcessingJobStatus.PENDING
+    job.retry_count = 0
+    job.error_message = None
+    job.error_details = None
+    job.started_at = None
+    job.completed_at = None
+    job.chunks_created = 0
+    job.triggered_by = current_user.id
+
+    await db.flush()
+    return MessageResponse(message="Document queued for reprocessing")
+
+
 # ── Feedback ─────────────────────────────────────────────────
+
 
 @router.get("/feedback")
 async def list_feedback(
@@ -377,6 +615,7 @@ async def list_feedback(
 
 # ── Audit Logs ───────────────────────────────────────────────
 
+
 @router.get("/audit-logs")
 async def list_audit_logs(
     current_user: AdminUser,
@@ -393,13 +632,13 @@ async def list_audit_logs(
     logs = result.scalars().all()
     return [
         {
-            "id": str(log.id),
-            "user_id": str(log.user_id) if log.user_id else None,
-            "action": log.action,
-            "resource_type": log.resource_type,
-            "resource_id": log.resource_id,
-            "details": log.details,
-            "created_at": log.created_at.isoformat(),
+            "id": str(log_entry.id),
+            "user_id": str(log_entry.user_id) if log_entry.user_id else None,
+            "action": log_entry.action,
+            "resource_type": log_entry.resource_type,
+            "resource_id": log_entry.resource_id,
+            "details": log_entry.details,
+            "created_at": log_entry.created_at.isoformat(),
         }
-        for log in logs
+        for log_entry in logs
     ]
