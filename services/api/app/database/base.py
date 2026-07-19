@@ -7,7 +7,7 @@ Provides a common base with UUID primary key, timestamps, and soft-delete.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime  # Python 3.10 compatibility
 
 from sqlalchemy import DateTime, func
 from sqlalchemy.dialects.postgresql import UUID

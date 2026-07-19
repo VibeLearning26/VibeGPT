@@ -4,7 +4,7 @@ VibeGPT API – Common Response Schemas
 
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel
