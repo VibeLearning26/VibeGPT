@@ -5,12 +5,11 @@ VibeGPT API – Document Upload Schemas
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.document import DocumentStatus, SourceType, ProcessingJobStatus
+from app.models.document import DocumentStatus, ProcessingJobStatus, SourceType
 
 
 class DocumentUploadRequest(BaseModel):
@@ -39,10 +38,10 @@ class DocumentChunkResponse(BaseModel):
     id: UUID
     document_id: UUID
     content: str
-    page_number: Optional[int] = None
-    slide_number: Optional[int] = None
-    sheet_name: Optional[str] = None
-    heading: Optional[str] = None
+    page_number: int | None = None
+    slide_number: int | None = None
+    sheet_name: str | None = None
+    heading: str | None = None
     chunk_index: int
     token_count: int
     is_active: bool
@@ -62,14 +61,14 @@ class DocumentDetailResponse(BaseModel):
     priority: int
     version: int
     status: DocumentStatus
-    description: Optional[str] = None
-    topic: Optional[str] = None
+    description: str | None = None
+    topic: str | None = None
     uploaded_by: UUID
     is_active: bool
-    published_at: Optional[datetime] = None
-    published_by: Optional[UUID] = None
+    published_at: datetime | None = None
+    published_by: UUID | None = None
     total_chunks: int
-    processing_error: Optional[str] = None
+    processing_error: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -80,10 +79,10 @@ class ProcessingJobResponse(BaseModel):
     id: UUID
     document_id: UUID
     status: ProcessingJobStatus
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    error_message: Optional[str] = None
-    error_details: Optional[dict] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
+    error_details: dict | None = None
     chunks_created: int
     retry_count: int
     triggered_by: UUID

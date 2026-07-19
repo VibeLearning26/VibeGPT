@@ -18,13 +18,13 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Query
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import DbSession, StudentUser
-from app.core.exceptions import NotFoundError, AuthorizationError
+from app.core.exceptions import AuthorizationError, NotFoundError
 from app.models.academic import Module, StudentSubjectPermission, Subject
-from app.models.question import Feedback, QuestionLog, QuestionSource, SavedAnswer
+from app.models.question import Feedback, QuestionLog, SavedAnswer
 from app.schemas.academic import ModuleResponse, SubjectResponse
 from app.schemas.auth import UserProfile
 from app.schemas.common import MessageResponse
@@ -49,9 +49,9 @@ async def get_student_subjects(current_user: StudentUser, db: DbSession):
         .where(
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
-                StudentSubjectPermission.is_active == True,
-                Subject.is_active == True,
-                Subject.archived_at == None,
+                StudentSubjectPermission.is_active,
+                Subject.is_active,
+                Subject.archived_at is None,
             )
         )
     )
@@ -68,7 +68,7 @@ async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: D
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
                 StudentSubjectPermission.subject_id == subject_id,
-                StudentSubjectPermission.is_active == True,
+                StudentSubjectPermission.is_active,
             )
         )
     )
@@ -77,7 +77,7 @@ async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: D
 
     result = await db.execute(
         select(Module)
-        .where(and_(Module.subject_id == subject_id, Module.is_active == True, Module.archived_at == None))
+        .where(and_(Module.subject_id == subject_id, Module.is_active, Module.archived_at is None))
         .order_by(Module.number)
     )
     modules = result.scalars().all()
@@ -96,7 +96,7 @@ async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: 
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
                 StudentSubjectPermission.subject_id == body.subject_id,
-                StudentSubjectPermission.is_active == True,
+                StudentSubjectPermission.is_active,
             )
         )
     )
@@ -106,6 +106,7 @@ async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: 
     # Phase 1 skeleton: create question log with placeholder
     # Full RAG pipeline will be implemented in Phase 5
     import time
+
     start_time = time.time()
 
     question_log = QuestionLog(
@@ -218,7 +219,9 @@ async def get_history_detail(question_id: UUID, current_user: StudentUser, db: D
         sources=sources,
         model=log.model_name,
         processing_ms=log.processing_time_ms,
-        validation=ValidationResult(**(log.validation_result or {})) if log.validation_result else None,
+        validation=ValidationResult(**(log.validation_result or {}))
+        if log.validation_result
+        else None,
         created_at=log.created_at,
     )
 
@@ -280,7 +283,10 @@ async def submit_feedback(body: FeedbackRequest, current_user: StudentUser, db: 
     # Check for existing feedback
     existing = await db.execute(
         select(Feedback).where(
-            and_(Feedback.question_log_id == body.question_log_id, Feedback.user_id == current_user.id)
+            and_(
+                Feedback.question_log_id == body.question_log_id,
+                Feedback.user_id == current_user.id,
+            )
         )
     )
     if existing.scalar_one_or_none() is not None:
@@ -303,7 +309,13 @@ async def get_saved_answers(current_user: StudentUser, db: DbSession):
     """Get all saved/bookmarked answers."""
     result = await db.execute(
         select(QuestionLog)
-        .join(SavedAnswer, and_(SavedAnswer.question_log_id == QuestionLog.id, SavedAnswer.user_id == current_user.id))
+        .join(
+            SavedAnswer,
+            and_(
+                SavedAnswer.question_log_id == QuestionLog.id,
+                SavedAnswer.user_id == current_user.id,
+            ),
+        )
         .order_by(SavedAnswer.created_at.desc())
         .options(selectinload(QuestionLog.subject), selectinload(QuestionLog.module))
     )

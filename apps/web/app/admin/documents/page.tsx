@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { fetchApi, fetchSemesters, fetchSubjectsWithModules, fetchDocuments, fetchDocumentJob, retryDocument, publishDocument, archiveDocument, SubjectWithModules, DocumentListItem, ProcessingJobResponse } from "@/lib/api";
+import { fetchSemesters, fetchSubjectsWithModules, fetchDocuments, fetchDocumentJob, retryDocument, publishDocument, archiveDocument, SubjectWithModules, DocumentListItem, ProcessingJobResponse } from "@/lib/api";
 
 interface Upload {
   id: string;
@@ -11,13 +11,6 @@ interface Upload {
   progress: number;
   status: "uploading" | "processing" | "done" | "error";
   error?: string;
-}
-
-interface Subject {
-  id: string;
-  name: string;
-  code: string;
-  modules: Array<{ id: string; name: string }>;
 }
 
 interface Semester {
@@ -96,7 +89,7 @@ export default function DocumentsPage() {
   // Fetch subjects when semester changes
   useEffect(() => {
     if (!semesterId) return;
-    setLoadingSubjects(true);
+    setTimeout(() => setLoadingSubjects(true), 0);
     fetchSubjectsWithModules(semesterId)
       .then((data) => setSubjects(data.filter((s) => s.is_active)))
       .catch(() => setError("Failed to load subjects"))
@@ -106,8 +99,7 @@ export default function DocumentsPage() {
   // Fetch documents for selected semester's subjects
   useEffect(() => {
     if (!semesterId || subjects.length === 0) return;
-    setLoadingDocs(true);
-    const subjectIds = subjects.map((s) => s.id).join(",");
+    setTimeout(() => setLoadingDocs(true), 0);
     fetchDocuments({ subject_id: subjects[0].id }) // TODO: support multiple
       .then((data) => setDocuments(data))
       .catch(() => setError("Failed to load documents"))
@@ -273,28 +265,6 @@ function SubjectUploadCard({ subject, onUploadComplete }: { subject: SubjectWith
 
 const selectedModule = subject.modules.find((m) => m.id === moduleId) ?? subject.modules[0];
 
-  const addFiles = useCallback((files: FileList | File[]) => {
-    for (const f of Array.from(files)) {
-      const fileExt = ext(f.name);
-      if (!["pdf", "ppt", "pptx", "doc", "docx", "xls", "xlsx"].includes(fileExt)) {
-        alert(`Unsupported file type: ${fileExt}`);
-        continue;
-      }
-
-      const id = `upl_${Date.now()}_${uploadCounter++}`;
-      const upload: Upload = {
-        id,
-        name: f.name,
-        size: `${(f.size / 1024 / 1024).toFixed(1)} MB`,
-        module: selectedModule.name,
-        progress: 0,
-        status: "uploading",
-      };
-      setUploads((prev) => [upload, ...prev]);
-      uploadFile(f, selectedModule.id, subject.id, id);
-    }
-  }, [selectedModule.id, subject.id]);
-
   const uploadFile = useCallback(async (file: File, modId: string, subId: string, uploadId: string) => {
     try {
       const formData = new FormData();
@@ -331,6 +301,28 @@ const selectedModule = subject.modules.find((m) => m.id === moduleId) ?? subject
       );
     }
   }, [onUploadComplete]);
+
+  const addFiles = useCallback((files: FileList | File[]) => {
+    for (const f of Array.from(files)) {
+      const fileExt = ext(f.name);
+      if (!["pdf", "ppt", "pptx", "doc", "docx", "xls", "xlsx"].includes(fileExt)) {
+        alert(`Unsupported file type: ${fileExt}`);
+        continue;
+      }
+
+      const id = `upl_${Date.now()}_${uploadCounter++}`;
+      const upload: Upload = {
+        id,
+        name: f.name,
+        size: `${(f.size / 1024 / 1024).toFixed(1)} MB`,
+        module: selectedModule.name,
+        progress: 0,
+        status: "uploading",
+      };
+      setUploads((prev) => [upload, ...prev]);
+      uploadFile(f, selectedModule.id, subject.id, id);
+    }
+  }, [selectedModule.id, selectedModule.name, subject.id, uploadFile]);
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();

@@ -16,7 +16,7 @@ Configuration:
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 class OpenRouterService:
     """
     OpenRouter unified LLM API gateway.
-    
+
     Currently a stub - will be implemented when multi-model routing is needed.
     Supports 300+ models via single API (Claude, GPT, Llama, Mixtral, etc.)
     """
-    
+
     def __init__(
         self,
         api_key: str = "",
@@ -46,43 +46,40 @@ class OpenRouterService:
         self.app_name = app_name
         self._available = False
         logger.info(f"OpenRouterService initialized (stub): {base_url}")
-    
+
     async def health_check(self) -> bool:
         """Check API connectivity and key validity."""
         # TODO: Implement via /auth/key
         return self._available
-    
-    async def list_models(self) -> List[Dict[str, Any]]:
+
+    async def list_models(self) -> list[dict[str, Any]]:
         """List available models via /models endpoint."""
         # TODO: Implement
         return []
-    
-    async def embed(self, texts: List[str], model: str = "text-embedding-3-small") -> List[List[float]]:
+
+    async def embed(
+        self, texts: list[str], model: str = "text-embedding-3-small"
+    ) -> list[list[float]]:
         """Generate embeddings via OpenRouter."""
         # TODO: Implement via /embeddings with specified model
         return [[0.0] * 1536 for _ in texts]  # OpenAI embedding dimension
-    
+
     async def chat(
         self,
-        messages: List[Dict[str, str]],
-        model: Optional[str] = None,
+        messages: list[dict[str, str]],
+        model: str | None = None,
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
-        **kwargs
+        max_tokens: int | None = None,
+        **kwargs,
     ) -> str:
         """Chat completion via OpenRouter."""
         # TODO: Implement via /chat/completions
         return "OpenRouter not yet configured. Please implement OpenRouterService.chat()"
-    
-    async def generate(
-        self,
-        prompt: str,
-        model: Optional[str] = None,
-        **kwargs
-    ) -> str:
+
+    async def generate(self, prompt: str, model: str | None = None, **kwargs) -> str:
         """Single-turn generation."""
         return await self.chat([{"role": "user", "content": prompt}], model=model, **kwargs)
-    
+
     @property
     def is_available(self) -> bool:
         return self._available
@@ -97,6 +94,7 @@ def get_openrouter_service() -> OpenRouterService:
     global _openrouter_service
     if _openrouter_service is None:
         from app.core.config import get_settings
+
         settings = get_settings()
         _openrouter_service = OpenRouterService(
             api_key=getattr(settings, "OPENROUTER_API_KEY", ""),

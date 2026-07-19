@@ -18,7 +18,7 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
   if (!response.ok) {
     let errorDetail = "API Request Failed";
     try {
-      const errorData = await response.json();
+      const errorData: { detail?: string } = await response.json();
       errorDetail = errorData.detail || errorDetail;
     } catch {}
     throw new Error(errorDetail);
@@ -104,12 +104,12 @@ export interface DocumentDetailResponse {
 // Fetch subjects with their modules for a given semester (via department filter)
 export async function fetchSubjectsWithModules(semesterId: string): Promise<SubjectWithModules[]> {
   // First get subjects for the semester
-  const subjects = await fetchApi(`/api/v1/admin/subjects?semester_id=${semesterId}`);
+  const subjects: SubjectWithModules[] = await fetchApi(`/api/v1/admin/subjects?semester_id=${semesterId}`);
   // Then fetch modules for each subject
   const subjectsWithModules = await Promise.all(
-    subjects.map(async (subject: any) => {
-      const modules = await fetchApi(`/api/v1/admin/modules?subject_id=${subject.id}`);
-      return { ...subject, modules: modules.filter((m: any) => m.is_active) };
+    subjects.map(async (subject: SubjectWithModules) => {
+      const modules: ModuleResponse[] = await fetchApi(`/api/v1/admin/modules?subject_id=${subject.id}`);
+      return { ...subject, modules: modules.filter((m: ModuleResponse) => m.is_active) };
     })
   );
   return subjectsWithModules;

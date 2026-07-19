@@ -1,4 +1,4 @@
-﻿"""
+"""
 VibeGPT – User and Authentication Models
 
 Tables: users, refresh_tokens
@@ -6,19 +6,23 @@ Tables: users, refresh_tokens
 
 from __future__ import annotations
 
+import enum
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
 
-import enum
+if TYPE_CHECKING:
+    from app.models.academic import StudentSubjectPermission
+    from app.models.question import Feedback, QuestionLog
 
 
-class UserRole(str, enum.Enum):
+class UserRole(enum.StrEnum):
     SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
     STUDENT = "student"
@@ -49,11 +53,13 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     refresh_tokens: Mapped[list[RefreshToken]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
-    subject_permissions: Mapped[list["StudentSubjectPermission"]] = relationship(
+    subject_permissions: Mapped[list[StudentSubjectPermission]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
-    question_logs: Mapped[list["QuestionLog"]] = relationship(back_populates="user")
-    feedback: Mapped[list["Feedback"]] = relationship(back_populates="user", foreign_keys="Feedback.user_id")
+    question_logs: Mapped[list[QuestionLog]] = relationship(back_populates="user")
+    feedback: Mapped[list[Feedback]] = relationship(
+        back_populates="user", foreign_keys="Feedback.user_id"
+    )
 
     def __repr__(self) -> str:
         return f"<User {self.email} ({self.role.value})>"
@@ -80,5 +86,6 @@ class RefreshToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     @property
     def is_expired(self) -> bool:
-        from datetime import UTC, datetime as dt
+        from datetime import UTC
+
         return datetime.now(UTC) > self.expires_at

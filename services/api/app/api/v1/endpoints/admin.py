@@ -9,39 +9,63 @@ Dashboard, feedback, audit logs.
 from __future__ import annotations
 
 import hashlib
-from uuid import UUID
 from datetime import UTC, datetime
-
-from fastapi import APIRouter, Query, UploadFile, File, Form, HTTPException, Depends
 from typing import Annotated
-from sqlalchemy import select, func, and_
+from uuid import UUID
+
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.core.dependencies import AdminUser, DbSession
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
 from app.models.academic import (
-    AcademicYear, Department, Module, Semester, Subject, StudentSubjectPermission,
+    AcademicYear,
+    Department,
+    Module,
+    Semester,
+    Subject,
 )
-from app.models.document import Document, DocumentProcessingJob, DocumentStatus, ProcessingJobStatus, SourceType
+from app.models.document import (
+    Document,
+    DocumentProcessingJob,
+    DocumentStatus,
+    ProcessingJobStatus,
+    SourceType,
+)
 from app.models.question import Feedback, QuestionLog
-from app.models.user import User, UserRole
 from app.models.system import AuditLog
+from app.models.user import User, UserRole
 from app.schemas.academic import (
-    AcademicYearCreate, AcademicYearResponse, AcademicYearUpdate,
-    DepartmentCreate, DepartmentResponse, DepartmentUpdate,
-    ModuleCreate, ModuleResponse, ModuleUpdate,
-    SemesterCreate, SemesterResponse, SemesterUpdate,
-    SubjectCreate, SubjectResponse, SubjectUpdate,
-    UserCreate, UserResponse, UserUpdate,
+    AcademicYearCreate,
+    AcademicYearResponse,
+    DepartmentCreate,
+    DepartmentResponse,
+    DepartmentUpdate,
+    ModuleCreate,
+    ModuleResponse,
+    SemesterCreate,
+    SemesterResponse,
+    SubjectCreate,
+    SubjectResponse,
+    SubjectUpdate,
+    UserCreate,
+    UserResponse,
+    UserUpdate,
 )
-from app.schemas.common import IDResponse, MessageResponse
-from app.schemas.document import DocumentUploadResponse, ProcessingJobResponse, DocumentDetailResponse
+from app.schemas.common import MessageResponse
+from app.schemas.document import (
+    DocumentDetailResponse,
+    DocumentUploadResponse,
+    ProcessingJobResponse,
+)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
 # ── Dashboard ────────────────────────────────────────────────
+
 
 @router.get("/dashboard")
 async def get_dashboard(current_user: AdminUser, db: DbSession):
@@ -49,16 +73,21 @@ async def get_dashboard(current_user: AdminUser, db: DbSession):
     today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
     published_docs = await db.execute(
-        select(func.count()).select_from(Document).where(Document.status == DocumentStatus.PUBLISHED)
+        select(func.count())
+        .select_from(Document)
+        .where(Document.status == DocumentStatus.PUBLISHED)
     )
     pending_docs = await db.execute(
         select(func.count()).select_from(Document).where(Document.status == DocumentStatus.UPLOADED)
     )
     review_docs = await db.execute(
-        select(func.count()).select_from(Document).where(Document.status == DocumentStatus.NEEDS_REVIEW)
+        select(func.count())
+        .select_from(Document)
+        .where(Document.status == DocumentStatus.NEEDS_REVIEW)
     )
     failed_jobs = await db.execute(
-        select(func.count()).select_from(DocumentProcessingJob)
+        select(func.count())
+        .select_from(DocumentProcessingJob)
         .where(DocumentProcessingJob.status == ProcessingJobStatus.FAILED)
     )
     total_students = await db.execute(
@@ -88,6 +117,7 @@ async def get_dashboard(current_user: AdminUser, db: DbSession):
 
 # ── Departments CRUD ─────────────────────────────────────────
 
+
 @router.post("/departments", response_model=DepartmentResponse, status_code=201)
 async def create_department(body: DepartmentCreate, current_user: AdminUser, db: DbSession):
     existing = await db.execute(select(Department).where(Department.code == body.code))
@@ -104,13 +134,15 @@ async def create_department(body: DepartmentCreate, current_user: AdminUser, db:
 @router.get("/departments", response_model=list[DepartmentResponse])
 async def list_departments(current_user: AdminUser, db: DbSession):
     result = await db.execute(
-        select(Department).where(Department.archived_at == None).order_by(Department.name)
+        select(Department).where(Department.archived_at is None).order_by(Department.name)
     )
     return [DepartmentResponse.model_validate(d) for d in result.scalars().all()]
 
 
 @router.patch("/departments/{dept_id}", response_model=DepartmentResponse)
-async def update_department(dept_id: UUID, body: DepartmentUpdate, current_user: AdminUser, db: DbSession):
+async def update_department(
+    dept_id: UUID, body: DepartmentUpdate, current_user: AdminUser, db: DbSession
+):
     result = await db.execute(select(Department).where(Department.id == dept_id))
     dept = result.scalar_one_or_none()
     if not dept:
@@ -135,6 +167,7 @@ async def archive_department(dept_id: UUID, current_user: AdminUser, db: DbSessi
 
 # ── Semesters CRUD ───────────────────────────────────────────
 
+
 @router.post("/semesters", response_model=SemesterResponse, status_code=201)
 async def create_semester(body: SemesterCreate, current_user: AdminUser, db: DbSession):
     sem = Semester(**body.model_dump())
@@ -147,12 +180,13 @@ async def create_semester(body: SemesterCreate, current_user: AdminUser, db: DbS
 @router.get("/semesters", response_model=list[SemesterResponse])
 async def list_semesters(current_user: AdminUser, db: DbSession):
     result = await db.execute(
-        select(Semester).where(Semester.archived_at == None).order_by(Semester.number)
+        select(Semester).where(Semester.archived_at is None).order_by(Semester.number)
     )
     return [SemesterResponse.model_validate(s) for s in result.scalars().all()]
 
 
 # ── Academic Years CRUD ──────────────────────────────────────
+
 
 @router.post("/academic-years", response_model=AcademicYearResponse, status_code=201)
 async def create_academic_year(body: AcademicYearCreate, current_user: AdminUser, db: DbSession):
@@ -166,12 +200,15 @@ async def create_academic_year(body: AcademicYearCreate, current_user: AdminUser
 @router.get("/academic-years", response_model=list[AcademicYearResponse])
 async def list_academic_years(current_user: AdminUser, db: DbSession):
     result = await db.execute(
-        select(AcademicYear).where(AcademicYear.archived_at == None).order_by(AcademicYear.start_year.desc())
+        select(AcademicYear)
+        .where(AcademicYear.archived_at is None)
+        .order_by(AcademicYear.start_year.desc())
     )
     return [AcademicYearResponse.model_validate(ay) for ay in result.scalars().all()]
 
 
 # ── Subjects CRUD ────────────────────────────────────────────
+
 
 @router.post("/subjects", response_model=SubjectResponse, status_code=201)
 async def create_subject(body: SubjectCreate, current_user: AdminUser, db: DbSession):
@@ -184,7 +221,7 @@ async def create_subject(body: SubjectCreate, current_user: AdminUser, db: DbSes
 
 @router.get("/subjects", response_model=list[SubjectResponse])
 async def list_subjects(current_user: AdminUser, db: DbSession, semester_id: UUID | None = None):
-    query = select(Subject).where(Subject.archived_at == None)
+    query = select(Subject).where(Subject.archived_at is None)
     if semester_id:
         query = query.where(Subject.semester_id == semester_id)
     result = await db.execute(query.order_by(Subject.name))
@@ -192,7 +229,9 @@ async def list_subjects(current_user: AdminUser, db: DbSession, semester_id: UUI
 
 
 @router.patch("/subjects/{subject_id}", response_model=SubjectResponse)
-async def update_subject(subject_id: UUID, body: SubjectUpdate, current_user: AdminUser, db: DbSession):
+async def update_subject(
+    subject_id: UUID, body: SubjectUpdate, current_user: AdminUser, db: DbSession
+):
     result = await db.execute(select(Subject).where(Subject.id == subject_id))
     subj = result.scalar_one_or_none()
     if not subj:
@@ -206,6 +245,7 @@ async def update_subject(subject_id: UUID, body: SubjectUpdate, current_user: Ad
 
 # ── Modules CRUD ─────────────────────────────────────────────
 
+
 @router.post("/modules", response_model=ModuleResponse, status_code=201)
 async def create_module(body: ModuleCreate, current_user: AdminUser, db: DbSession):
     mod = Module(**body.model_dump())
@@ -217,7 +257,7 @@ async def create_module(body: ModuleCreate, current_user: AdminUser, db: DbSessi
 
 @router.get("/modules", response_model=list[ModuleResponse])
 async def list_modules(current_user: AdminUser, db: DbSession, subject_id: UUID | None = None):
-    query = select(Module).where(Module.archived_at == None)
+    query = select(Module).where(Module.archived_at is None)
     if subject_id:
         query = query.where(Module.subject_id == subject_id)
     result = await db.execute(query.order_by(Module.number))
@@ -225,6 +265,7 @@ async def list_modules(current_user: AdminUser, db: DbSession, subject_id: UUID 
 
 
 # ── Users CRUD ───────────────────────────────────────────────
+
 
 @router.post("/users", response_model=UserResponse, status_code=201)
 async def create_user(body: UserCreate, current_user: AdminUser, db: DbSession):
@@ -254,7 +295,7 @@ async def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
-    query = select(User).where(User.archived_at == None)
+    query = select(User).where(User.archived_at is None)
     if role:
         query = query.where(User.role == UserRole(role))
     result = await db.execute(
@@ -283,9 +324,11 @@ async def update_user(user_id: UUID, body: UserUpdate, current_user: AdminUser, 
 
 # Private helpers for upload functionality
 
+
 def _get_secure_filename(original_filename: str) -> str:
     import os
     import uuid
+
     ext = os.path.splitext(original_filename)[1]
     unique_id = uuid.uuid4().hex[:12]
     return f"{unique_id}{ext}"
@@ -306,17 +349,18 @@ def _validate_file_type(filename: str) -> str:
 
 @router.post("/documents/upload", response_model=DocumentUploadResponse, status_code=201)
 async def upload_document(
-    file: UploadFile = File(...),
-    subject_id: UUID = Form(...),
-    module_id: UUID | None = Form(None),
-    source_type: str = Form(default="other"),
-    description: str | None = Form(None, max_length=2000),
-    topic: str | None = Form(None, max_length=500),
     *,
     current_user: AdminUser,
     db: DbSession,
+    file: Annotated[UploadFile, File()],
+    subject_id: Annotated[UUID, Form()],
+    module_id: Annotated[UUID | None, Form()] = None,
+    source_type: Annotated[str, Form()] = "other",
+    description: Annotated[str | None, Form(max_length=2000)] = None,
+    topic: Annotated[str | None, Form(max_length=500)] = None,
 ):
     import os
+
     settings = get_settings()
 
     # Validate extension
@@ -327,12 +371,12 @@ async def upload_document(
     mime_type = _validate_file_type(filename)
 
     # Read file with size enforcement during read
-    CHUNK_SIZE = 1024 * 1024  # 1MB chunks
+    chunk_size = 1024 * 1024  # 1MB chunks
     sha256_hash = hashlib.sha256()
     file_size = 0
     file_buffer = bytearray()
     while True:
-        chunk = await file.read(CHUNK_SIZE)
+        chunk = await file.read(chunk_size)
         if not chunk:
             break
         sha256_hash.update(chunk)
@@ -346,7 +390,7 @@ async def upload_document(
 
     # Check for duplicates
     existing = await db.execute(
-        select(Document).where(Document.file_hash == file_hash).where(Document.archived_at == None)
+        select(Document).where(Document.file_hash == file_hash).where(Document.archived_at is None)
     )
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=409, detail="Document already exists")
@@ -421,7 +465,7 @@ async def list_documents(
     status: str | None = None,
     subject_id: UUID | None = None,
 ):
-    query = select(Document).where(Document.archived_at == None)
+    query = select(Document).where(Document.archived_at is None)
     if status:
         query = query.where(Document.status == DocumentStatus(status))
     if subject_id:
@@ -482,6 +526,7 @@ async def archive_document(document_id: UUID, current_user: AdminUser, db: DbSes
 
 # ── Document Processing Job Status ─────────────────────────────
 
+
 @router.get("/documents/{document_id}/job", response_model=ProcessingJobResponse)
 async def get_document_job(document_id: UUID, current_user: AdminUser, db: DbSession):
     """Get processing job status for a document."""
@@ -505,10 +550,10 @@ async def retry_document(document_id: UUID, current_user: AdminUser, db: DbSessi
     doc = result.scalar_one_or_none()
     if not doc:
         raise NotFoundError("Document")
-    
+
     if doc.status != DocumentStatus.FAILED:
         raise ConflictError(f"Can only retry failed documents (current: {doc.status.value})")
-    
+
     # Get the latest job
     result = await db.execute(
         select(DocumentProcessingJob)
@@ -519,11 +564,11 @@ async def retry_document(document_id: UUID, current_user: AdminUser, db: DbSessi
     job = result.scalar_one_or_none()
     if not job:
         raise NotFoundError("Processing job")
-    
+
     # Reset for retry
     doc.status = DocumentStatus.UPLOADED
     doc.processing_error = None
-    
+
     job.status = ProcessingJobStatus.PENDING
     job.retry_count = 0
     job.error_message = None
@@ -532,12 +577,13 @@ async def retry_document(document_id: UUID, current_user: AdminUser, db: DbSessi
     job.completed_at = None
     job.chunks_created = 0
     job.triggered_by = current_user.id
-    
+
     await db.flush()
     return MessageResponse(message="Document queued for reprocessing")
 
 
 # ── Feedback ─────────────────────────────────────────────────
+
 
 @router.get("/feedback")
 async def list_feedback(
@@ -569,6 +615,7 @@ async def list_feedback(
 
 # ── Audit Logs ───────────────────────────────────────────────
 
+
 @router.get("/audit-logs")
 async def list_audit_logs(
     current_user: AdminUser,
@@ -585,13 +632,13 @@ async def list_audit_logs(
     logs = result.scalars().all()
     return [
         {
-            "id": str(l.id),
-            "user_id": str(l.user_id) if l.user_id else None,
-            "action": l.action,
-            "resource_type": l.resource_type,
-            "resource_id": l.resource_id,
-            "details": l.details,
-            "created_at": l.created_at.isoformat(),
+            "id": str(log_entry.id),
+            "user_id": str(log_entry.user_id) if log_entry.user_id else None,
+            "action": log_entry.action,
+            "resource_type": log_entry.resource_type,
+            "resource_id": log_entry.resource_id,
+            "details": log_entry.details,
+            "created_at": log_entry.created_at.isoformat(),
         }
-        for l in logs
+        for log_entry in logs
     ]

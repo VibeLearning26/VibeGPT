@@ -8,7 +8,6 @@ Returns zero vectors for testing worker pipeline.
 from __future__ import annotations
 
 import logging
-from typing import List
 
 import numpy as np
 
@@ -20,57 +19,60 @@ logger = logging.getLogger(__name__)
 class EmbeddingService:
     """
     Embedding service for generating vector representations of text chunks.
-    
+
     TODO: Replace with Athul's implementation (Task AT1).
     Currently returns deterministic zero vectors for testing.
     """
-    
+
     def __init__(self):
         self.settings = get_settings()
         self.dim = 384  # all-MiniLM-L6-v2 dimension
         self._model = None
-    
+
     def _load_model(self):
         """Lazy load the embedding model."""
         if self._model is None:
             try:
                 from sentence_transformers import SentenceTransformer
+
                 self._model = SentenceTransformer(self.settings.EMBEDDING_MODEL)
                 logger.info(f"Loaded embedding model: {self.settings.EMBEDDING_MODEL}")
             except Exception as e:
                 logger.warning(f"Could not load sentence-transformers: {e}. Using mock embeddings.")
                 self._model = None
-    
-    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """
         Generate embeddings for a list of texts.
-        
+
         Args:
             texts: List of text strings to embed
-            
+
         Returns:
             List of embedding vectors (each 384 dimensions)
         """
         if not texts:
             return []
-        
+
         self._load_model()
-        
+
         if self._model is not None:
             try:
-                embeddings = self._model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
+                embeddings = self._model.encode(
+                    texts, convert_to_numpy=True, normalize_embeddings=True
+                )
                 return embeddings.tolist()
             except Exception as e:
                 logger.error(f"Embedding generation failed: {e}")
-        
+
         # Fallback: deterministic mock embeddings
         return self._mock_embeddings(texts)
-    
-    def embed_single(self, text: str) -> List[float]:
+
+    def embed_single(self, text: str) -> list[float]:
         """Generate embedding for a single text."""
         return self.embed_texts([text])[0]
-    
-    def _mock_embeddings(self, texts: List[str]) -> List[List[float]]:
+
+    def _mock_embeddings(self, texts: list[str]) -> list[list[float]]:
         """
         Generate deterministic mock embeddings for testing.
         Uses hash of text to create reproducible vectors.
@@ -87,8 +89,8 @@ class EmbeddingService:
                 vec = vec / norm
             embeddings.append(vec.tolist())
         return embeddings
-    
-    def validate_dimension(self, embeddings: List[List[float]]) -> bool:
+
+    def validate_dimension(self, embeddings: list[list[float]]) -> bool:
         """Validate all embeddings have correct dimension."""
         return all(len(e) == self.dim for e in embeddings)
 
@@ -105,6 +107,6 @@ def get_embedding_service() -> EmbeddingService:
     return _embedding_service
 
 
-def embed_chunks(chunks: List[str]) -> List[List[float]]:
+def embed_chunks(chunks: list[str]) -> list[list[float]]:
     """Convenience function to embed chunks."""
     return get_embedding_service().embed_texts(chunks)

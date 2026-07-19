@@ -11,10 +11,10 @@ POST /api/v1/auth/change-password
 from __future__ import annotations
 
 import hashlib
+import sys
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Request, HTTPException
-import sys
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, update
 
@@ -108,13 +108,11 @@ async def refresh_token(request: Request, db: DbSession, response: Response):
         payload = decode_token(refresh_token_str)
         if payload.get("type") != "refresh":
             raise AuthenticationError("Invalid token type")
-    except Exception:
-        raise AuthenticationError("Invalid refresh token")
+    except Exception as e:
+        raise AuthenticationError("Invalid refresh token") from e
 
     token_hash = hashlib.sha256(refresh_token_str.encode()).hexdigest()
-    result = await db.execute(
-        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
-    )
+    result = await db.execute(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
     db_token = result.scalar_one_or_none()
 
     if db_token is None or db_token.is_revoked or db_token.is_expired:
