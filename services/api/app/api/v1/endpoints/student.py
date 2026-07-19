@@ -87,9 +87,13 @@ async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: D
 @router.post("/answers", response_model=AnswerResponse)
 async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: DbSession):
     """
-    Submit a question and receive an exam-ready answer.
-    This is the core RAG endpoint — skeleton for Phase 1.
+    Submit a question and receive a grounded, exam-ready RAG answer.
+
+    Orchestrates the full V2 RAG pipeline via AnswerService:
+    retrieval → prompt construction → Ollama generation → validation → persistence.
     """
+    from app.rag.answer_service import AnswerService
+
     # Verify subject access
     perm = await db.execute(
         select(StudentSubjectPermission).where(
@@ -103,41 +107,16 @@ async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: 
     if perm.scalar_one_or_none() is None:
         raise AuthorizationError("You do not have access to this subject")
 
-    # Phase 1 skeleton: create question log with placeholder
-    # Full RAG pipeline will be implemented in Phase 5
-    import time
+    from app.rag.answer_service import AnswerService
 
-    start_time = time.time()
-
-    question_log = QuestionLog(
+    service = AnswerService()
+    return await service.generate_answer(
+        db=db,
         user_id=current_user.id,
         subject_id=body.subject_id,
         module_id=body.module_id,
         marks=body.marks,
         question=body.question,
-        answer="RAG pipeline not yet configured. This endpoint will generate answers once document processing and Ollama are set up.",
-        answer_status="completed",
-        word_count=0,
-        model_name="pending-setup",
-        prompt_version="v1",
-        processing_time_ms=int((time.time() - start_time) * 1000),
-    )
-    db.add(question_log)
-    await db.flush()
-    await db.refresh(question_log)
-
-    return AnswerResponse(
-        id=question_log.id,
-        status=question_log.answer_status,
-        answer=question_log.answer,
-        word_count=question_log.word_count,
-        marks=question_log.marks,
-        question=question_log.question,
-        sources=[],
-        model=question_log.model_name,
-        processing_ms=question_log.processing_time_ms,
-        validation=ValidationResult(),
-        created_at=question_log.created_at,
     )
 
 
@@ -200,7 +179,7 @@ async def get_history_detail(question_id: UUID, current_user: StudentUser, db: D
         SourceInfo(
             label=s.label,
             document_id=s.document_id,
-            document_name="",  # Will be resolved in Phase 5
+            document_name=f"Document [{s.label}]",  # Label-based fallback; full name stored in answer_service
             page_number=s.page_number,
             slide_number=s.slide_number,
             preview=s.preview,

@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from app.models.academic import StudentSubjectPermission
     from app.models.question import Feedback, QuestionLog
 
-
 class UserRole(enum.StrEnum):
     SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
@@ -86,6 +85,6 @@ class RefreshToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     @property
     def is_expired(self) -> bool:
-        from datetime import UTC
+        from datetime import timezone
 
-        return datetime.now(UTC) > self.expires_at
+        return datetime.now(timezone.utc) > self.expires_at
