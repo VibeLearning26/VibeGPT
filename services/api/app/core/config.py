@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     def validate_jwt_secret(cls, v: str) -> str:
         if v == "change-this-to-a-random-64-char-string":
             import warnings
+
             warnings.warn(
                 "JWT_SECRET_KEY is set to the default value. "
                 "Change it to a secure random string in production!",

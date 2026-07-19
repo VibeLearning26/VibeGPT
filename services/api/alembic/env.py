@@ -5,15 +5,17 @@ Uses async engine and imports all models for autogenerate support.
 """
 
 import asyncio
+import os
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import app.models  # noqa: F401
+from alembic import context
+
 # Import base and all models for autogenerate
 from app.database.base import Base
-import app.models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
@@ -22,7 +24,7 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Override URL from environment if available
-import os
+
 db_url = os.environ.get("DATABASE_URL")
 if db_url:
     config.set_main_option("sqlalchemy.url", db_url)

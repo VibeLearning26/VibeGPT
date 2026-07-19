@@ -7,12 +7,16 @@ Tables: answer_rules, answer_examples
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
+
+if TYPE_CHECKING:
+    from app.models.academic import Subject
 
 
 class AnswerRule(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
@@ -44,7 +48,7 @@ class AnswerRule(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
-    subject: Mapped["Subject | None"] = relationship(back_populates="answer_rules")
+    subject: Mapped[Subject | None] = relationship(back_populates="answer_rules")
 
     def __repr__(self) -> str:
         return f"<AnswerRule {self.marks}marks: {self.name}>"

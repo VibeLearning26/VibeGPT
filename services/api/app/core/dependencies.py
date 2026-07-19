@@ -6,16 +6,15 @@ Common dependencies for auth, DB sessions, and role checking.
 
 from __future__ import annotations
 
-from typing import Annotated
 import uuid
+from typing import Annotated
 
-from fastapi import Depends, Header, Request
+from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.exceptions import AuthenticationError, AuthorizationError
 from app.core.security import decode_token
 from app.database.session import get_db
@@ -41,8 +40,8 @@ async def get_current_user(
         if user_id is None:
             raise AuthenticationError("Token missing subject")
 
-    except JWTError:
-        raise AuthenticationError("Invalid or expired token")
+    except JWTError as e:
+        raise AuthenticationError("Invalid or expired token") from e
 
     result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
     user = result.scalar_one_or_none()

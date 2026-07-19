@@ -9,9 +9,9 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    Boolean,
     DateTime,
     Enum,
     Float,
@@ -19,15 +19,18 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
+if TYPE_CHECKING:
+    from app.models.academic import Module, Subject
+    from app.models.user import User
 
-class AnswerStatus(str, enum.Enum):
+
+class AnswerStatus(enum.StrEnum):
     COMPLETED = "completed"
     INSUFFICIENT_SOURCES = "insufficient_sources"
     GENERATION_FAILED = "generation_failed"
@@ -58,21 +61,23 @@ class QuestionLog(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     word_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     prompt_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    retrieved_chunk_ids: Mapped[list | None] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=True)
+    retrieved_chunk_ids: Mapped[list | None] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=True
+    )
     processing_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     validation_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Relationships
-    user: Mapped["User"] = relationship(back_populates="question_logs")
-    subject: Mapped["Subject"] = relationship()
-    module: Mapped["Module | None"] = relationship()
+    user: Mapped[User] = relationship(back_populates="question_logs")
+    subject: Mapped[Subject] = relationship()
+    module: Mapped[Module | None] = relationship()
     sources: Mapped[list[QuestionSource]] = relationship(
         back_populates="question_log", cascade="all, delete-orphan"
     )
-    saved_answer: Mapped["SavedAnswer | None"] = relationship(
+    saved_answer: Mapped[SavedAnswer | None] = relationship(
         back_populates="question_log", uselist=False
     )
-    feedback_entry: Mapped["Feedback | None"] = relationship(
+    feedback_entry: Mapped[Feedback | None] = relationship(
         back_populates="question_log", uselist=False
     )
 
@@ -84,8 +89,10 @@ class QuestionSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "question_sources"
 
     question_log_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("question_logs.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        UUID(as_uuid=True),
+        ForeignKey("question_logs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     chunk_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=False
@@ -110,8 +117,10 @@ class SavedAnswer(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     question_log_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("question_logs.id", ondelete="CASCADE"),
-        nullable=False, unique=True,
+        UUID(as_uuid=True),
+        ForeignKey("question_logs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -126,8 +135,10 @@ class Feedback(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     question_log_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("question_logs.id", ondelete="CASCADE"),
-        nullable=False, unique=True,
+        UUID(as_uuid=True),
+        ForeignKey("question_logs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
     )
     rating: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-5
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -138,5 +149,5 @@ class Feedback(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    user: Mapped["User"] = relationship(back_populates="feedback", foreign_keys=[user_id])
+    user: Mapped[User] = relationship(back_populates="feedback", foreign_keys=[user_id])
     question_log: Mapped[QuestionLog] = relationship(back_populates="feedback_entry")

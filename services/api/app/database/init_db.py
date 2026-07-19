@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import hash_password
-from app.models.user import User, UserRole
 from app.models.answer_rule import AnswerRule
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ async def create_initial_admin(db: AsyncSession) -> None:
 
 async def create_default_answer_rules(db: AsyncSession) -> None:
     """Create default 2, 5, and 10-mark answer rules if none exist."""
-    result = await db.execute(select(AnswerRule).where(AnswerRule.is_default == True))
+    result = await db.execute(select(AnswerRule).where(AnswerRule.is_default))
     if result.scalars().first() is not None:
         logger.info("Default answer rules already exist, skipping")
         return

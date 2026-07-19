@@ -5,8 +5,9 @@ Unit tests for the OllamaClient.
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
+
 import httpx
+import pytest
 
 from app.rag.ollama_client import (
     OllamaClient,
