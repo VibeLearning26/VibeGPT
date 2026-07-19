@@ -10,6 +10,34 @@ import {
   type StudyAnswer,
   type RouteResult,
 } from "@/lib/mockData";
+import { askQuestion, hasRealSession, isUuid, type ApiAnswerResponse } from "@/lib/api";
+
+function apiAnswerToStudyAnswer(
+  api: ApiAnswerResponse,
+  subjectName: string,
+  moduleName: string,
+): StudyAnswer {
+  return {
+    question: api.question,
+    marks: api.marks,
+    subject: subjectName,
+    module: moduleName,
+    body: api.answer ?? "No answer was generated.",
+    wordCount: api.word_count ?? 0,
+    processingMs: api.processing_ms ?? 0,
+    sources: api.sources.map((s) => ({
+      tag: s.label,
+      document: s.document_name,
+      location:
+        s.page_number != null
+          ? `Page ${s.page_number}`
+          : s.slide_number != null
+            ? `Slide ${s.slide_number}`
+            : (s.sheet_name ?? "—"),
+      preview: s.preview ?? "",
+    })),
+  };
+}
 
 function renderBody(body: string) {
   // Minimal markdown-ish rendering for **bold**, bullets, and paragraphs.
@@ -80,6 +108,25 @@ export default function ChatPage() {
     setShowSources(false);
     setCopied(false);
     setSaved(false);
+
+    // When logged into the real backend and the routed subject carries a real
+    // UUID, use the RAG pipeline; otherwise fall back to the local mock.
+    if (route && hasRealSession() && isUuid(route.subject.id)) {
+      try {
+        const api = await askQuestion({
+          subject_id: route.subject.id,
+          module_id: isUuid(route.module.id) ? route.module.id : null,
+          marks: m,
+          question: q,
+        });
+        setAnswer(apiAnswerToStudyAnswer(api, route.subject.name, route.module.name));
+        setLoading(false);
+        return;
+      } catch {
+        // Backend unreachable or errored — fall through to mock below.
+      }
+    }
+
     const result = route
       ? generateMockAnswer(q, m, route.subject.name, route.module.name)
       : generateMockAnswer(q, m, "General", "General");
