@@ -25,6 +25,7 @@ from app.core.dependencies import DbSession, StudentUser
 from app.core.exceptions import NotFoundError, AuthorizationError
 from app.models.academic import Module, StudentSubjectPermission, Subject
 from app.models.question import Feedback, QuestionLog, QuestionSource, SavedAnswer
+from app.rag.generation import AnswerGenerationService
 from app.schemas.academic import ModuleResponse, SubjectResponse
 from app.schemas.auth import UserProfile
 from app.schemas.common import MessageResponse
@@ -103,10 +104,14 @@ async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: 
     if perm.scalar_one_or_none() is None:
         raise AuthorizationError("You do not have access to this subject")
 
-    # Phase 1 skeleton: create question log with placeholder
-    # Full RAG pipeline will be implemented in Phase 5
-    import time
-    start_time = time.time()
+    # Full RAG pipeline: retrieve → prompt → Ollama → validate
+    service = AnswerGenerationService(db)
+    result = await service.generate(
+        question=body.question,
+        subject_id=body.subject_id,
+        marks=body.marks,
+        module_id=body.module_id,
+    )
 
     question_log = QuestionLog(
         user_id=current_user.id,
@@ -114,28 +119,61 @@ async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: 
         module_id=body.module_id,
         marks=body.marks,
         question=body.question,
-        answer="RAG pipeline not yet configured. This endpoint will generate answers once document processing and Ollama are set up.",
-        answer_status="completed",
-        word_count=0,
-        model_name="pending-setup",
-        prompt_version="v1",
-        processing_time_ms=int((time.time() - start_time) * 1000),
+        answer=result.answer,
+        answer_status=result.status,
+        word_count=result.word_count,
+        model_name=result.model_name,
+        prompt_version=result.prompt_version,
+        retrieved_chunk_ids=[c.chunk_id for c in result.sources] or None,
+        processing_time_ms=result.processing_ms,
+        validation_result=result.validation or None,
     )
     db.add(question_log)
+    await db.flush()
+
+    for citation in result.sources:
+        db.add(
+            QuestionSource(
+                question_log_id=question_log.id,
+                chunk_id=citation.chunk_id,
+                document_id=citation.document_id,
+                label=citation.label,
+                relevance_score=citation.relevance_score,
+                page_number=citation.page_number,
+                slide_number=citation.slide_number,
+                preview=citation.preview,
+            )
+        )
     await db.flush()
     await db.refresh(question_log)
 
     return AnswerResponse(
         id=question_log.id,
-        status=question_log.answer_status,
+        status=question_log.answer_status.value,
         answer=question_log.answer,
         word_count=question_log.word_count,
         marks=question_log.marks,
         question=question_log.question,
-        sources=[],
+        sources=[
+            SourceInfo(
+                label=c.label,
+                document_id=c.document_id,
+                document_name=c.document_name,
+                page_number=c.page_number,
+                slide_number=c.slide_number,
+                sheet_name=c.sheet_name,
+                preview=c.preview,
+                relevance_score=c.relevance_score,
+            )
+            for c in result.sources
+        ],
         model=question_log.model_name,
         processing_ms=question_log.processing_time_ms,
-        validation=ValidationResult(),
+        validation=ValidationResult(
+            word_count_valid=result.validation.get("word_count_valid", True),
+            citations_valid=result.validation.get("citations_valid", True),
+            details=result.validation or None,
+        ),
         created_at=question_log.created_at,
     )
 

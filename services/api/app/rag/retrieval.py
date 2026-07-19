@@ -3,11 +3,12 @@ VibeGPT - Document Retrieval Service
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.models.document import DocumentChunk, Document, DocumentStatus
 from app.rag.embedding import EmbeddingService
@@ -68,3 +69,50 @@ class RetrievalService:
         except Exception as e:
             logger.error(f"Error during vector retrieval: {e}")
             raise
+
+    async def search_chunks_with_scores(
+        self,
+        query: str,
+        subject_id: uuid.UUID,
+        module_id: Optional[uuid.UUID] = None,
+        top_k: int = 5,
+        threshold: float = 0.5,
+    ) -> List[Tuple[DocumentChunk, float]]:
+        """
+        Like search_chunks, but returns (chunk, relevance) pairs with the
+        parent Document eager-loaded so callers can build citations.
+        Relevance is cosine similarity in [0, 1] (1 - cosine distance,
+        exact because embeddings are L2-normalized).
+        """
+        query_vector = self.embedding_service.embed_query(query)
+        distance_expr = DocumentChunk.embedding.cosine_distance(query_vector)
+
+        stmt = (
+            select(DocumentChunk, distance_expr.label("distance"))
+            .join(Document, DocumentChunk.document_id == Document.id)
+            .options(joinedload(DocumentChunk.document))
+            .where(
+                DocumentChunk.is_active == True,
+                DocumentChunk.embedding.is_not(None),
+                Document.is_active == True,
+                Document.status.in_([DocumentStatus.READY, DocumentStatus.PUBLISHED]),
+                Document.subject_id == subject_id,
+            )
+        )
+        if module_id:
+            stmt = stmt.where(Document.module_id == module_id)
+
+        stmt = stmt.where(distance_expr < threshold).order_by(distance_expr).limit(top_k)
+
+        result = await self.db.execute(stmt)
+        rows = result.unique().all()
+
+        scored: List[Tuple[DocumentChunk, float]] = []
+        seen_content: set[str] = set()
+        for chunk, distance in rows:
+            key = chunk.content.strip().lower()
+            if key in seen_content:
+                continue
+            seen_content.add(key)
+            scored.append((chunk, max(0.0, min(1.0, 1.0 - float(distance)))))
+        return scored

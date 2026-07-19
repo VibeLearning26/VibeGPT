@@ -47,7 +47,13 @@ class Settings(BaseSettings):
     # ── AI / LLM ────────────────────────────────────────────
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2:3b"
+    OLLAMA_TIMEOUT_SECONDS: float = 120.0
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+
+    # ── RAG Retrieval ────────────────────────────────────────
+    RAG_TOP_K: int = 5
+    RAG_DISTANCE_THRESHOLD: float = 0.8  # max cosine distance (lower = stricter)
+    RAG_MIN_SOURCES: int = 1
 
     # ── File Storage ─────────────────────────────────────────
     UPLOAD_DIRECTORY: str = "./uploads"
