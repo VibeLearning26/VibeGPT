@@ -21,19 +21,32 @@ from app.core.dependencies import AdminUser, DbSession
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
 from app.models.academic import (
-    AcademicYear, Department, Module, Semester, Subject, StudentSubjectPermission,
+    AcademicYear,
+    Department,
+    Module,
+    Semester,
+    Subject,
 )
 from app.models.document import Document, DocumentProcessingJob, DocumentStatus, ProcessingJobStatus, SourceType
 from app.models.question import Feedback, QuestionLog
-from app.models.user import User, UserRole
 from app.models.system import AuditLog
+from app.models.user import User, UserRole
 from app.schemas.academic import (
-    AcademicYearCreate, AcademicYearResponse, AcademicYearUpdate,
-    DepartmentCreate, DepartmentResponse, DepartmentUpdate,
-    ModuleCreate, ModuleResponse, ModuleUpdate,
-    SemesterCreate, SemesterResponse, SemesterUpdate,
-    SubjectCreate, SubjectResponse, SubjectUpdate,
-    UserCreate, UserResponse, UserUpdate,
+    AcademicYearCreate,
+    AcademicYearResponse,
+    DepartmentCreate,
+    DepartmentResponse,
+    DepartmentUpdate,
+    ModuleCreate,
+    ModuleResponse,
+    SemesterCreate,
+    SemesterResponse,
+    SubjectCreate,
+    SubjectResponse,
+    SubjectUpdate,
+    UserCreate,
+    UserResponse,
+    UserUpdate,
 )
 from app.schemas.common import IDResponse, MessageResponse
 from app.schemas.document import DocumentUploadResponse, ProcessingJobResponse, DocumentDetailResponse
@@ -104,7 +117,7 @@ async def create_department(body: DepartmentCreate, current_user: AdminUser, db:
 @router.get("/departments", response_model=list[DepartmentResponse])
 async def list_departments(current_user: AdminUser, db: DbSession):
     result = await db.execute(
-        select(Department).where(Department.archived_at == None).order_by(Department.name)
+        select(Department).where(Department.archived_at is None).order_by(Department.name)
     )
     return [DepartmentResponse.model_validate(d) for d in result.scalars().all()]
 
@@ -147,7 +160,7 @@ async def create_semester(body: SemesterCreate, current_user: AdminUser, db: DbS
 @router.get("/semesters", response_model=list[SemesterResponse])
 async def list_semesters(current_user: AdminUser, db: DbSession):
     result = await db.execute(
-        select(Semester).where(Semester.archived_at == None).order_by(Semester.number)
+        select(Semester).where(Semester.archived_at is None).order_by(Semester.number)
     )
     return [SemesterResponse.model_validate(s) for s in result.scalars().all()]
 
@@ -166,7 +179,7 @@ async def create_academic_year(body: AcademicYearCreate, current_user: AdminUser
 @router.get("/academic-years", response_model=list[AcademicYearResponse])
 async def list_academic_years(current_user: AdminUser, db: DbSession):
     result = await db.execute(
-        select(AcademicYear).where(AcademicYear.archived_at == None).order_by(AcademicYear.start_year.desc())
+        select(AcademicYear).where(AcademicYear.archived_at is None).order_by(AcademicYear.start_year.desc())
     )
     return [AcademicYearResponse.model_validate(ay) for ay in result.scalars().all()]
 
@@ -217,7 +230,7 @@ async def create_module(body: ModuleCreate, current_user: AdminUser, db: DbSessi
 
 @router.get("/modules", response_model=list[ModuleResponse])
 async def list_modules(current_user: AdminUser, db: DbSession, subject_id: UUID | None = None):
-    query = select(Module).where(Module.archived_at == None)
+    query = select(Module).where(Module.archived_at is None)
     if subject_id:
         query = query.where(Module.subject_id == subject_id)
     result = await db.execute(query.order_by(Module.number))
@@ -254,7 +267,7 @@ async def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
-    query = select(User).where(User.archived_at == None)
+    query = select(User).where(User.archived_at is None)
     if role:
         query = query.where(User.role == UserRole(role))
     result = await db.execute(
@@ -421,7 +434,7 @@ async def list_documents(
     status: str | None = None,
     subject_id: UUID | None = None,
 ):
-    query = select(Document).where(Document.archived_at == None)
+    query = select(Document).where(Document.archived_at is None)
     if status:
         query = query.where(Document.status == DocumentStatus(status))
     if subject_id:
@@ -585,13 +598,13 @@ async def list_audit_logs(
     logs = result.scalars().all()
     return [
         {
-            "id": str(l.id),
-            "user_id": str(l.user_id) if l.user_id else None,
-            "action": l.action,
-            "resource_type": l.resource_type,
-            "resource_id": l.resource_id,
-            "details": l.details,
-            "created_at": l.created_at.isoformat(),
+            "id": str(log.id),
+            "user_id": str(log.user_id) if log.user_id else None,
+            "action": log.action,
+            "resource_type": log.resource_type,
+            "resource_id": log.resource_id,
+            "details": log.details,
+            "created_at": log.created_at.isoformat(),
         }
-        for l in logs
+        for log in logs
     ]

@@ -6,7 +6,7 @@ Aggregates all v1 endpoint routers.
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, student, admin, system
+from app.api.v1.endpoints import admin, auth, student, system
 
 api_router = APIRouter(prefix="/api/v1")
 

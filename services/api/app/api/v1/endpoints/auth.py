@@ -108,8 +108,8 @@ async def refresh_token(request: Request, db: DbSession, response: Response):
         payload = decode_token(refresh_token_str)
         if payload.get("type") != "refresh":
             raise AuthenticationError("Invalid token type")
-    except Exception:
-        raise AuthenticationError("Invalid refresh token")
+    except Exception as err:
+        raise AuthenticationError("Invalid refresh token") from err
 
     token_hash = hashlib.sha256(refresh_token_str.encode()).hexdigest()
     result = await db.execute(
