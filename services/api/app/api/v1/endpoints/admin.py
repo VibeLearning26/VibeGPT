@@ -11,16 +11,18 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import UTC, datetime
+from uuid import UUID
 
-from fastapi import APIRouter, Query, UploadFile, File, Form, HTTPException, Depends
-from sqlalchemy import select, func, and_
+from fastapi import APIRouter, BackgroundTasks, Query, UploadFile, File, Form, HTTPException
+from sqlalchemy import select, func
 
 from app.core.config import get_settings
 from app.core.dependencies import AdminUser, DbSession
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
+from app.document_processing.pipeline import process_document
 from app.models.academic import (
-    AcademicYear, Department, Module, Semester, Subject, StudentSubjectPermission,
+    AcademicYear, Department, Module, Semester, Subject,
 )
 from app.models.document import Document, DocumentProcessingJob, DocumentStatus, ProcessingJobStatus, SourceType
 from app.models.question import Feedback, QuestionLog
@@ -303,6 +305,7 @@ def _validate_file_type(filename: str) -> str:
 
 @router.post("/documents/upload", response_model=DocumentUploadResponse, status_code=201)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     subject_id: UUID = Form(...),
     module_id: UUID | None = Form(None),
@@ -400,6 +403,12 @@ async def upload_document(
         if os.path.exists(stored_path_str):
             os.remove(stored_path_str)
         raise
+
+    # Commit now so the background task (separate session) can see the rows.
+    await db.commit()
+
+    # Kick off extraction → chunking → embedding after the response returns.
+    background_tasks.add_task(process_document, doc.id, job.id)
 
     return DocumentUploadResponse(
         id=doc.id,
