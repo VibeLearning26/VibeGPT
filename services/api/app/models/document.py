@@ -160,7 +160,7 @@ class DocumentChunk(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    # embedding stored via pgvector — column added in migration with: Vector(384)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships
