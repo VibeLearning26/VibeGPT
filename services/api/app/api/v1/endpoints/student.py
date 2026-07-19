@@ -107,7 +107,6 @@ async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: 
     if perm.scalar_one_or_none() is None:
         raise AuthorizationError("You do not have access to this subject")
 
-    from app.rag.answer_service import AnswerService
 
     service = AnswerService()
     return await service.generate_answer(
