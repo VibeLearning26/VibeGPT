@@ -11,8 +11,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.models.document import DocumentChunk
     from app.models.answer_rule import AnswerRule
+    from app.models.document import DocumentChunk
 
 
 class PromptBuilder:

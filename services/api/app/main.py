@@ -12,13 +12,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.router import api_router
-from app.core.config import get_settings
-from app.database.session import async_session_factory
-from app.database.init_db import init_db
-
 # Import all models so they are registered with SQLAlchemy
 import app.models  # noqa: F401
+from app.api.v1.router import api_router
+from app.core.config import get_settings
+from app.database.init_db import init_db
+from app.database.session import async_session_factory
 
 logging.basicConfig(
     level=logging.INFO,

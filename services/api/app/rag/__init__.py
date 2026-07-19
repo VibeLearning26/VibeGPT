@@ -1,5 +1,6 @@
 """Package markers for RAG module"""
 
+from app.rag.answer_service import AnswerService
 from app.rag.ollama_client import (
     OllamaClient,
     OllamaConnectionError,
@@ -10,7 +11,6 @@ from app.rag.ollama_client import (
 )
 from app.rag.prompt_builder import PromptBuilder
 from app.rag.retrieval import RetrievalService
-from app.rag.answer_service import AnswerService
 
 __all__ = [
     # V1 – Ollama client

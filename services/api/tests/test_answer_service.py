@@ -21,7 +21,6 @@ from app.rag.ollama_client import OllamaConnectionError, OllamaTimeoutError
 from app.rag.prompt_builder import PromptBuilder
 from app.schemas.question import AnswerResponse
 
-
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def make_rule(
@@ -361,16 +360,15 @@ async def test_answer_service_propagates_ollama_connection_error():
     db = make_db_session()
     service = AnswerService(ollama_client=mock_ollama, retrieval_service=mock_retrieval)
 
-    with patch.object(service, "_get_rule", AsyncMock(return_value=rule)):
-        with pytest.raises(OllamaConnectionError):
-            await service.generate_answer(
-                db=db,
-                user_id=uuid.uuid4(),
-                subject_id=uuid.uuid4(),
-                module_id=None,
-                marks=5,
-                question="What is networking?",
-            )
+    with patch.object(service, "_get_rule", AsyncMock(return_value=rule)), pytest.raises(OllamaConnectionError):
+        await service.generate_answer(
+            db=db,
+            user_id=uuid.uuid4(),
+            subject_id=uuid.uuid4(),
+            module_id=None,
+            marks=5,
+            question="What is networking?",
+        )
 
 
 @pytest.mark.asyncio
@@ -391,16 +389,15 @@ async def test_answer_service_propagates_ollama_timeout_error():
     db = make_db_session()
     service = AnswerService(ollama_client=mock_ollama, retrieval_service=mock_retrieval)
 
-    with patch.object(service, "_get_rule", AsyncMock(return_value=rule)):
-        with pytest.raises(OllamaTimeoutError):
-            await service.generate_answer(
-                db=db,
-                user_id=uuid.uuid4(),
-                subject_id=uuid.uuid4(),
-                module_id=None,
-                marks=5,
-                question="What is networking?",
-            )
+    with patch.object(service, "_get_rule", AsyncMock(return_value=rule)), pytest.raises(OllamaTimeoutError):
+        await service.generate_answer(
+            db=db,
+            user_id=uuid.uuid4(),
+            subject_id=uuid.uuid4(),
+            module_id=None,
+            marks=5,
+            question="What is networking?",
+        )
 
 
 # ─── Tests: AnswerService – source labeling ───────────────────────────────────

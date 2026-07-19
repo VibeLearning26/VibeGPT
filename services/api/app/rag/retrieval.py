@@ -8,7 +8,7 @@ and the pgvector extension on PostgreSQL.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+
 from sentence_transformers import SentenceTransformer
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,9 +73,9 @@ class RetrievalService:
             .where(
                 and_(
                     Document.subject_id == subject_id,
-                    Document.is_active == True,
+                    Document.is_active,
                     Document.status == DocumentStatus.PUBLISHED,
-                    DocumentChunk.is_active == True,
+                    DocumentChunk.is_active,
                 )
             )
             .options(selectinload(DocumentChunk.document))

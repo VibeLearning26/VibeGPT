@@ -7,13 +7,7 @@ Provides a common base with UUID primary key, timestamps, and soft-delete.
 from __future__ import annotations
 
 import uuid
-import sys
-
-if sys.version_info >= (3, 11):
-    from datetime import UTC, datetime
-else:
-    from datetime import datetime, timezone
-    UTC = timezone.utc  # Python 3.10 compatibility
+from datetime import datetime  # Python 3.10 compatibility
 
 from sqlalchemy import DateTime, func
 from sqlalchemy.dialects.postgresql import UUID

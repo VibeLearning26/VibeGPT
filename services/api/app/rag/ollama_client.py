@@ -8,6 +8,7 @@ Implements error handling, timeout options, and health readiness checks.
 from __future__ import annotations
 
 import httpx
+
 from app.core.config import get_settings
 
 

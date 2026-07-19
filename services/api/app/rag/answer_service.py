@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import time
 import uuid
+
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -275,7 +276,7 @@ class AnswerService:
                 and_(
                     AnswerRule.subject_id == subject_id,
                     AnswerRule.marks == marks,
-                    AnswerRule.is_active == True,
+                    AnswerRule.is_active,
                 )
             )
         )
@@ -287,9 +288,9 @@ class AnswerService:
         result = await db.execute(
             select(AnswerRule).where(
                 and_(
-                    AnswerRule.is_default == True,
+                    AnswerRule.is_default,
                     AnswerRule.marks == marks,
-                    AnswerRule.is_active == True,
+                    AnswerRule.is_active,
                 )
             )
         )

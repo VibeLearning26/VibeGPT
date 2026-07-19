@@ -18,13 +18,13 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Query
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, select
 from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import DbSession, StudentUser
-from app.core.exceptions import NotFoundError, AuthorizationError
+from app.core.exceptions import AuthorizationError, NotFoundError
 from app.models.academic import Module, StudentSubjectPermission, Subject
-from app.models.question import Feedback, QuestionLog, QuestionSource, SavedAnswer
+from app.models.question import Feedback, QuestionLog, SavedAnswer
 from app.schemas.academic import ModuleResponse, SubjectResponse
 from app.schemas.auth import UserProfile
 from app.schemas.common import MessageResponse
@@ -49,9 +49,9 @@ async def get_student_subjects(current_user: StudentUser, db: DbSession):
         .where(
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
-                StudentSubjectPermission.is_active == True,
-                Subject.is_active == True,
-                Subject.archived_at == None,
+                StudentSubjectPermission.is_active,
+                Subject.is_active,
+                Subject.archived_at is None,
             )
         )
     )
@@ -68,7 +68,7 @@ async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: D
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
                 StudentSubjectPermission.subject_id == subject_id,
-                StudentSubjectPermission.is_active == True,
+                StudentSubjectPermission.is_active,
             )
         )
     )
@@ -77,7 +77,7 @@ async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: D
 
     result = await db.execute(
         select(Module)
-        .where(and_(Module.subject_id == subject_id, Module.is_active == True, Module.archived_at == None))
+        .where(and_(Module.subject_id == subject_id, Module.is_active, Module.archived_at is None))
         .order_by(Module.number)
     )
     modules = result.scalars().all()
@@ -100,7 +100,7 @@ async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: 
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
                 StudentSubjectPermission.subject_id == body.subject_id,
-                StudentSubjectPermission.is_active == True,
+                StudentSubjectPermission.is_active,
             )
         )
     )
