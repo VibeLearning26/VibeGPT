@@ -85,3 +85,124 @@ export async function askQuestion(params: {
     }),
   });
 }
+
+// ── Auth ───────────────────────────────────────────────────────
+
+export interface ApiTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+export async function apiLogin(email: string, password: string): Promise<ApiTokenResponse> {
+  return fetchApi("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+// ── Admin: subjects / modules / documents ─────────────────────
+// Mirrors services/api app/schemas/academic.py and admin endpoints
+
+export interface ApiSubject {
+  id: string;
+  name: string;
+  code: string;
+  description: string | null;
+  department_id: string;
+  semester_id: string;
+  credits: number | null;
+  is_active: boolean;
+}
+
+export interface ApiModule {
+  id: string;
+  name: string;
+  number: number;
+  description: string | null;
+  subject_id: string;
+  is_active: boolean;
+}
+
+export interface ApiSemester {
+  id: string;
+  number: number;
+  name: string;
+  is_active: boolean;
+}
+
+export interface ApiDocument {
+  id: string;
+  document_name: string;
+  original_filename: string;
+  status: string;
+  source_type: string;
+  file_size: number;
+  total_chunks: number;
+  created_at: string;
+}
+
+export type SourceTypeValue =
+  | "pdf_notes"
+  | "pptx_presentation"
+  | "docx_notes"
+  | "xlsx_question_bank"
+  | "previous_year_paper"
+  | "teacher_answer"
+  | "teacher_example"
+  | "other";
+
+export const adminApi = {
+  listSemesters: (): Promise<ApiSemester[]> => fetchApi("/api/v1/admin/semesters"),
+
+  listSubjects: (): Promise<ApiSubject[]> => fetchApi("/api/v1/admin/subjects"),
+
+  listModules: (subjectId: string): Promise<ApiModule[]> =>
+    fetchApi(`/api/v1/admin/modules?subject_id=${encodeURIComponent(subjectId)}`),
+
+  listDocuments: (subjectId?: string): Promise<ApiDocument[]> =>
+    fetchApi(
+      subjectId
+        ? `/api/v1/admin/documents?subject_id=${encodeURIComponent(subjectId)}`
+        : "/api/v1/admin/documents",
+    ),
+
+  publishDocument: (documentId: string): Promise<{ message: string }> =>
+    fetchApi(`/api/v1/admin/documents/${documentId}/publish`, { method: "POST" }),
+
+  uploadDocument: (params: {
+    file: File;
+    subject_id: string;
+    module_id?: string | null;
+    source_type?: SourceTypeValue;
+    description?: string;
+    topic?: string;
+  }): Promise<{ id: string; document_name: string; status: string }> => {
+    const form = new FormData();
+    form.append("file", params.file);
+    form.append("subject_id", params.subject_id);
+    if (params.module_id) form.append("module_id", params.module_id);
+    form.append("source_type", params.source_type ?? "other");
+    if (params.description) form.append("description", params.description);
+    if (params.topic) form.append("topic", params.topic);
+    return fetchApi("/api/v1/admin/documents/upload", { method: "POST", body: form });
+  },
+};
+
+/** Infer the backend SourceType from a filename + admin's chosen category. */
+export function inferSourceType(filename: string, category: SourceTypeValue | "auto"): SourceTypeValue {
+  if (category !== "auto") return category;
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  switch (ext) {
+    case "pdf":
+      return "pdf_notes";
+    case "pptx":
+      return "pptx_presentation";
+    case "docx":
+      return "docx_notes";
+    case "xlsx":
+      return "xlsx_question_bank";
+    default:
+      return "other";
+  }
+}

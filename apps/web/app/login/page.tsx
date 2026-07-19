@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { mockLogin } from "@/lib/auth";
+import { apiLogin, fetchApi } from "@/lib/api";
 // Static import: page is a client component and all WebGL code runs in
 // useEffect, so this is SSR-safe — and it avoids the lazy-chunk delay
 // that made the animation pop in late.
@@ -21,8 +22,33 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    // Frontend-only mock auth — no backend.
-    await new Promise((r) => setTimeout(r, 650));
+    // 1. Try the real backend first so documents/answers are live.
+    try {
+      const token = await apiLogin(email, password);
+      sessionStorage.setItem("access_token", token.access_token);
+      const me = await fetchApi("/api/v1/auth/me");
+      sessionStorage.setItem(
+        "vibegpt_user",
+        JSON.stringify({
+          email: me.email,
+          name: me.full_name,
+          role: me.role === "student" ? "student" : "admin",
+          initials: (me.full_name ?? "U")
+            .split(" ")
+            .map((w: string) => w[0])
+            .join("")
+            .slice(0, 2)
+            .toUpperCase(),
+        }),
+      );
+      router.push(me.role === "student" ? "/student/chat" : "/admin");
+      return;
+    } catch {
+      // Backend down or wrong credentials — fall through to demo accounts.
+    }
+
+    // 2. Frontend-only demo fallback.
+    await new Promise((r) => setTimeout(r, 300));
     const user = mockLogin(email, password);
 
     if (!user) {

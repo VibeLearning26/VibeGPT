@@ -10,7 +10,13 @@ import {
   type StudyAnswer,
   type RouteResult,
 } from "@/lib/mockData";
-import { askQuestion, hasRealSession, isUuid, type ApiAnswerResponse } from "@/lib/api";
+import { askQuestion, fetchApi, hasRealSession, isUuid, type ApiAnswerResponse } from "@/lib/api";
+
+interface RealSubject {
+  id: string;
+  name: string;
+  code: string;
+}
 
 function apiAnswerToStudyAnswer(
   api: ApiAnswerResponse,
@@ -95,10 +101,24 @@ export default function ChatPage() {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Real backend subjects the student can access (empty in demo mode).
+  const [realSubjects, setRealSubjects] = useState<RealSubject[]>([]);
+
+  useEffect(() => {
+    if (!hasRealSession()) return;
+    fetchApi("/api/v1/student/subjects")
+      .then((subs: RealSubject[]) => setRealSubjects(subs))
+      .catch(() => setRealSubjects([]));
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [answer, loading]);
+
+  /** Find the real UUID subject matching a mock-routed subject (by code, then name). */
+  const matchRealSubject = (code: string, name: string): RealSubject | undefined =>
+    realSubjects.find((s) => s.code.toLowerCase() === code.toLowerCase()) ??
+    realSubjects.find((s) => s.name.toLowerCase() === name.toLowerCase());
 
   const run = async (q: string, m: number) => {
     // Route the question to a subject within the chosen semester (mock "AI").
@@ -109,21 +129,31 @@ export default function ChatPage() {
     setCopied(false);
     setSaved(false);
 
-    // When logged into the real backend and the routed subject carries a real
-    // UUID, use the RAG pipeline; otherwise fall back to the local mock.
-    if (route && hasRealSession() && isUuid(route.subject.id)) {
-      try {
-        const api = await askQuestion({
-          subject_id: route.subject.id,
-          module_id: isUuid(route.module.id) ? route.module.id : null,
-          marks: m,
-          question: q,
-        });
-        setAnswer(apiAnswerToStudyAnswer(api, route.subject.name, route.module.name));
-        setLoading(false);
-        return;
-      } catch {
-        // Backend unreachable or errored — fall through to mock below.
+    // When logged into the real backend, resolve the routed subject to a real
+    // UUID (mock ids like "dbms" are matched to API subjects by code/name) and
+    // ask the Ollama-backed RAG pipeline; otherwise fall back to the local mock.
+    if (hasRealSession()) {
+      const real = route
+        ? isUuid(route.subject.id)
+          ? { id: route.subject.id, name: route.subject.name, code: route.subject.code }
+          : matchRealSubject(route.subject.code, route.subject.name)
+        : realSubjects[0]; // no mock route — let retrieval decide relevance
+      if (real) {
+        try {
+          const api = await askQuestion({
+            subject_id: real.id,
+            module_id: route && isUuid(route.module.id) ? route.module.id : null,
+            marks: m,
+            question: q,
+          });
+          setAnswer(
+            apiAnswerToStudyAnswer(api, real.name, route?.module.name ?? "General"),
+          );
+          setLoading(false);
+          return;
+        } catch {
+          // Backend unreachable or errored — fall through to mock below.
+        }
       }
     }
 
