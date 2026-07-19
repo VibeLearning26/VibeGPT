@@ -53,7 +53,7 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         back_populates="user", cascade="all, delete-orphan"
     )
     question_logs: Mapped[list["QuestionLog"]] = relationship(back_populates="user")
-    feedback: Mapped[list["Feedback"]] = relationship(back_populates="user")
+    feedback: Mapped[list["Feedback"]] = relationship(back_populates="user", foreign_keys="[Feedback.user_id]")
 
     def __repr__(self) -> str:
         return f"<User {self.email} ({self.role.value})>"
@@ -80,5 +80,5 @@ class RefreshToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     @property
     def is_expired(self) -> bool:
-        from datetime import UTC, datetime as dt
-        return datetime.now(UTC) > self.expires_at
+        from datetime import timezone
+        return datetime.now(timezone.utc) > self.expires_at
