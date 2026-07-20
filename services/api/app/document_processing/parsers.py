@@ -206,15 +206,19 @@ def parse_document(file_bytes: bytes, mime_type: str | SourceType) -> list[Parse
 
     # Convert SourceType enum to MIME type if needed
     if isinstance(mime_type, SourceType):
+        original_source = mime_type
         source_to_mime = {
             SourceType.PDF_NOTES: "application/pdf",
             SourceType.PPTX_PRESENTATION: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             SourceType.DOCX_NOTES: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             SourceType.XLSX_QUESTION_BANK: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            SourceType.PREVIOUS_YEAR_PAPER: "application/pdf",
+            SourceType.TEACHER_ANSWER: "application/pdf",
+            SourceType.TEACHER_EXAMPLE: "application/pdf",
         }
         mime_type = source_to_mime.get(mime_type)
         if not mime_type:
-            raise ValueError(f"Unsupported source type: {mime_type}")
+            raise ValueError(f"Unsupported source type: {original_source}")
 
     mime_map = {
         "application/pdf": parse_pdf,

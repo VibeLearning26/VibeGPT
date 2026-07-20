@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Dither from "@/components/ui/Dither";
-import { fetchApi } from "@/lib/api";
+import { mockLogin } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,12 +13,21 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
+    // Try mock login first (works without backend)
+    const user = mockLogin(email, password);
+    if (user) {
+      router.push(user.role === 'student' ? '/student/chat' : '/admin/documents');
+      return;
+    }
+
+    // Fallback to real API
     try {
+      const { fetchApi } = await import("@/lib/api");
       const data = await fetchApi("/api/v1/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -27,12 +36,10 @@ export default function LoginPage() {
 
       if (typeof window !== "undefined") {
         sessionStorage.setItem("access_token", data.access_token);
-        sessionStorage.setItem("vibegpt_user", JSON.stringify({ email, role: "admin" }));
+        const payload = JSON.parse(atob(data.access_token.split('.')[1]));
+        sessionStorage.setItem("vibegpt_user", JSON.stringify({ email: payload.email, role: payload.role }));
+        router.push(payload.role === 'student' ? '/student/chat' : '/admin/documents');
       }
-
-      // Redirect based on role from token payload
-      const payload = JSON.parse(atob(data.access_token.split('.')[1]));
-      router.push(payload.role === 'student' ? '/student/chat' : '/admin/documents');
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
@@ -148,20 +155,20 @@ export default function LoginPage() {
             <div className="mt-4 pt-3.5 border-t border-line-soft">
               <p className="text-xs font-semibold text-muted mb-2.5">Demo accounts — tap to fill</p>
               <div className="space-y-1.5">
-                <button
-                  onClick={() => fill("student@vibegpt.com", "student123")}
-                  className="w-full text-left px-3 py-2 rounded-xl bg-panel-2 border border-line hover:border-[rgba(229,9,20,0.4)] transition text-xs"
-                >
-                  <span className="badge badge-neutral mr-2">Student</span>
-                  <span className="text-muted">student@vibegpt.com · student123</span>
-                </button>
-                <button
-                  onClick={() => fill("admin@vibegpt.com", "change-this-admin-password")}
-                  className="w-full text-left px-3 py-2 rounded-xl bg-panel-2 border border-line hover:border-[rgba(229,9,20,0.4)] transition text-xs"
-                >
-                  <span className="badge badge-red mr-2">Admin</span>
-                  <span className="text-muted">admin@vibegpt.com · change-this-admin-password</span>
-                </button>
+<button
+                   onClick={() => fill("student@vibegpt.local", "student123")}
+                   className="w-full text-left px-3 py-2 rounded-xl bg-panel-2 border border-line hover:border-[rgba(229,9,20,0.4)] transition text-xs"
+                 >
+                   <span className="badge badge-neutral mr-2">Student</span>
+                   <span className="text-muted">student@vibegpt.local · student123</span>
+                 </button>
+<button
+                   onClick={() => fill("admin@vibegpt.local", "admin123")}
+                   className="w-full text-left px-3 py-2 rounded-xl bg-panel-2 border border-line hover:border-[rgba(229,9,20,0.4)] transition text-xs"
+                 >
+                   <span className="badge badge-red mr-2">Admin</span>
+                   <span className="text-muted">admin@vibegpt.local · admin123</span>
+                 </button>
               </div>
             </div>
           </div>
