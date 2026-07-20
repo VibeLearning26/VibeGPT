@@ -1,7 +1,5 @@
-"use client";
-
-import { useState, useRef, useCallback, useEffect } from "react";
-import { fetchSemesters, fetchSubjectsWithModules, fetchDocuments, fetchDocumentJob, retryDocument, publishDocument, archiveDocument, SubjectWithModules, DocumentListItem, ProcessingJobResponse } from "@/lib/api";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { fetchSemesters, fetchSubjectsWithModules, fetchDocuments, fetchDocumentJob, retryDocument, publishDocument, archiveDocument, SubjectWithModules, DocumentListItem, ProcessingJobResponse, Semester } from "@/lib/api";
 
 interface Upload {
   id: string;
@@ -89,21 +87,45 @@ export default function DocumentsPage() {
   // Fetch subjects when semester changes
   useEffect(() => {
     if (!semesterId) return;
-    setTimeout(() => setLoadingSubjects(true), 0);
-    fetchSubjectsWithModules(semesterId)
-      .then((data) => setSubjects(data.filter((s) => s.is_active)))
-      .catch(() => setError("Failed to load subjects"))
-      .finally(() => setLoadingSubjects(false));
+    let cancelled = false;
+
+    const loadSubjects = async () => {
+      setLoadingSubjects(true);
+      try {
+        const data = await fetchSubjectsWithModules(semesterId);
+        if (!cancelled) {
+          setSubjects(data.filter((s) => s.is_active));
+        }
+      } catch {
+        if (!cancelled) setError("Failed to load subjects");
+      } finally {
+        if (!cancelled) setLoadingSubjects(false);
+      }
+    };
+
+    loadSubjects();
+    return () => { cancelled = true; };
   }, [semesterId]);
 
-  // Fetch documents for selected semester's subjects
-  useEffect(() => {
-    if (!semesterId || subjects.length === 0) return;
-    setTimeout(() => setLoadingDocs(true), 0);
-    fetchDocuments({ subject_id: subjects[0].id }) // TODO: support multiple
-      .then((data) => setDocuments(data))
-      .catch(() => setError("Failed to load documents"))
-      .finally(() => setLoadingDocs(false));
+// Fetch documents for selected semester's subjects
+   useEffect(() => {
+     if (!semesterId || subjects.length === 0) return;
+     let cancelled = false;
+
+     const loadDocuments = async () => {
+       setLoadingDocs(true);
+       try {
+         const data = await fetchDocuments({ subject_id: subjects[0].id });
+         if (!cancelled) setDocuments(data);
+       } catch {
+         if (!cancelled) setError("Failed to load documents");
+       } finally {
+         if (!cancelled) setLoadingDocs(false);
+       }
+     };
+
+    loadDocuments();
+    return () => { cancelled = true; };
   }, [semesterId, subjects]);
 
   // Poll job statuses for documents that are processing
@@ -263,9 +285,13 @@ function SubjectUploadCard({ subject, onUploadComplete }: { subject: SubjectWith
   const [uploads, setUploads] = useState<Upload[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-const selectedModule = subject.modules.find((m) => m.id === moduleId) ?? subject.modules[0];
+  const selectedModule = useMemo(
+    () => subject.modules.find((m) => m.id === moduleId) ?? subject.modules[0],
+    [subject.modules, moduleId]
+  );
 
-  const uploadFile = useCallback(async (file: File, modId: string, subId: string, uploadId: string) => {
+  const uploadFile = useCallback(
+    async (file: File, modId: string, subId: string, uploadId: string) => {
     try {
       const formData = new FormData();
       formData.append("file", file);

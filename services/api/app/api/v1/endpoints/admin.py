@@ -339,8 +339,11 @@ def _validate_file_type(filename: str) -> str:
     mime_map = {
         "pdf": "application/pdf",
         "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "ppt": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "doc": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xls": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
     if ext not in mime_map:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
@@ -366,7 +369,7 @@ async def upload_document(
     # Validate extension
     filename = file.filename or "unknown"
     ext = filename.lower().split(".")[-1] if "." in filename else ""
-    if ext not in ("pdf", "pptx", "docx", "xlsx"):
+    if ext not in ("pdf", "pptx", "ppt", "docx", "doc", "xlsx", "xls"):
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
     mime_type = _validate_file_type(filename)
 
