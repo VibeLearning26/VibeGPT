@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { fetchSemesters, fetchSubjectsWithModules, fetchDocuments, fetchDocumentJob, retryDocument, publishDocument, archiveDocument, SubjectWithModules, DocumentListItem, ProcessingJobResponse } from "@/lib/api";
 
