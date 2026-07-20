@@ -13,7 +13,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
@@ -38,8 +38,8 @@ export default function LoginPage() {
         sessionStorage.setItem("access_token", data.access_token);
         const payload = JSON.parse(atob(data.access_token.split('.')[1]));
         sessionStorage.setItem("vibegpt_user", JSON.stringify({ email: payload.email, role: payload.role }));
+        router.push(payload.role === 'student' ? '/student/chat' : '/admin/documents');
       }
-      router.push(payload.role === 'student' ? '/student/chat' : '/admin/documents');
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
