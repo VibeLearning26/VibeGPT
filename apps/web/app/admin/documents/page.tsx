@@ -1,15 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  adminApi,
-  inferSourceType,
-  type ApiDocument,
-  type ApiModule,
-  type ApiSemester,
-  type ApiSubject,
-  type SourceTypeValue,
-} from "@/lib/api";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { fetchSemesters, fetchSubjectsWithModules, fetchDocuments, fetchDocumentJob, retryDocument, publishDocument, archiveDocument, SubjectWithModules, DocumentListItem, ProcessingJobResponse } from "@/lib/api";
 
 interface Upload {
   id: string;
@@ -82,19 +74,78 @@ export default function DocumentsPage() {
   // Initial state is already loading=true, so the effect only starts the fetch.
   // Deferred via setTimeout to satisfy react-hooks/set-state-in-effect.
   useEffect(() => {
-    const t = setTimeout(fetchData, 0);
-    return () => clearTimeout(t);
-  }, [fetchData]);
+    if (!semesterId) return;
+    let cancelled = false;
 
-  const load = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    fetchData();
-  }, [fetchData]);
+    const loadSubjects = async () => {
+      setLoadingSubjects(true);
+      try {
+        const data = await fetchSubjectsWithModules(semesterId);
+        if (!cancelled) {
+          setSubjects(data.filter((s) => s.is_active));
+        }
+      } catch {
+        if (!cancelled) setError("Failed to load subjects");
+      } finally {
+        if (!cancelled) setLoadingSubjects(false);
+      }
+    };
 
-  const visibleSubjects = subjects.filter(
-    (s) => s.is_active && (!semesterId || s.semester_id === semesterId),
-  );
+    loadSubjects();
+    return () => { cancelled = true; };
+  }, [semesterId]);
+
+// Fetch documents for selected semester's subjects
+   useEffect(() => {
+     if (!semesterId || subjects.length === 0) return;
+     let cancelled = false;
+
+     const loadDocuments = async () => {
+       setLoadingDocs(true);
+       try {
+         const data = await fetchDocuments({ subject_id: subjects[0].id });
+         if (!cancelled) setDocuments(data);
+       } catch {
+         if (!cancelled) setError("Failed to load documents");
+       } finally {
+         if (!cancelled) setLoadingDocs(false);
+       }
+     };
+
+    loadDocuments();
+    return () => { cancelled = true; };
+  }, [semesterId, subjects]);
+
+  // Poll job statuses for documents that are processing
+  useEffect(() => {
+    const processingDocs = documents.filter((d) => 
+      ["processing", "pending", "running"].includes(d.status)
+    );
+    
+    if (processingDocs.length === 0) return;
+
+    const interval = setInterval(async () => {
+      for (const doc of processingDocs) {
+        try {
+          const job = await fetchDocumentJob(doc.id);
+          setJobs((prev) => ({ ...prev, [doc.id]: job }));
+          
+          // Update document status from job
+          if (job.status === "completed" || job.status === "failed") {
+            setDocuments((prev) => prev.map((d) => 
+              d.id === doc.id 
+                ? { ...d, status: job.status === "completed" ? "ready" : "failed", total_chunks: job.chunks_created }
+                : d
+            ));
+          }
+        } catch {}
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [documents]);
+
+  if (!semesterId) return null;
 
   return (
     <div className="max-w-4xl mx-auto px-5 sm:px-8 py-8">
@@ -187,28 +238,13 @@ function SubjectUploadCard({ subject }: { subject: ApiSubject }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    adminApi
-      .listModules(subject.id)
-      .then((mods) => {
-        if (cancelled) return;
-        mods.sort((a, b) => a.number - b.number);
-        setModules(mods);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [subject.id]);
+  const selectedModule = useMemo(
+    () => subject.modules.find((m) => m.id === moduleId) ?? subject.modules[0],
+    [subject.modules, moduleId]
+  );
 
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, []);
-
-  const refreshDocs = useCallback(async () => {
+  const uploadFile = useCallback(
+    async (file: File, modId: string, subId: string, uploadId: string) => {
     try {
       const list = await adminApi.listDocuments(subject.id);
       setDocs(list);
