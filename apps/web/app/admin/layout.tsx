@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
-import { logout } from "@/lib/auth";
+import { getCurrentUser, logout } from "@/lib/auth";
+import { hasRealSession } from "@/lib/api";
 
 const navItems = [
   { icon: "📊", label: "Dashboard", href: "/admin", id: "dashboard" },
@@ -19,6 +20,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
+  const [authorized, setAuthorized] = useState(false);
+
+  useEffect(() => {
+    const user = getCurrentUser();
+    if (!hasRealSession() || !user || user.role !== "admin") {
+      logout();
+      router.replace("/login");
+      return;
+    }
+    const timer = window.setTimeout(() => setAuthorized(true), 0);
+    return () => window.clearTimeout(timer);
+  }, [router]);
 
   const isActive = (href: string) =>
     href === "/admin" ? pathname === "/admin" : pathname.startsWith(href);
@@ -27,6 +40,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     logout();
     router.push("/login");
   };
+
+  if (!authorized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)]">
+        <div className="loading-dots">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell flex h-screen overflow-hidden">

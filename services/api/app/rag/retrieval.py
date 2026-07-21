@@ -1,101 +1,118 @@
 """
-VibeGPT API – Retrieval Service
-
-Performs semantic vector search on DocumentChunks using sentence-transformers
-and the pgvector extension on PostgreSQL.
+VibeGPT - Document Retrieval Service
 """
 
-from __future__ import annotations
-
+import logging
+from typing import List, Optional, Tuple
 import uuid
 
-from sentence_transformers import SentenceTransformer
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload
 
-from app.core.config import get_settings
-from app.models.document import Document, DocumentChunk, DocumentStatus
+from app.models.document import DocumentChunk, Document, DocumentStatus
+from app.rag.embedding import EmbeddingService
 
+logger = logging.getLogger(__name__)
 
 class RetrievalService:
-    """Service to handle embedding generation and vector search retrieval."""
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.embedding_service = EmbeddingService()
 
-    def __init__(self, model_name: str | None = None):
-        """
-        Initialize the retrieval service.
-
-        Args:
-            model_name: Name of the sentence-transformers model. Defaults to settings.EMBEDDING_MODEL.
-        """
-        settings = get_settings()
-        self.model_name = model_name or settings.EMBEDDING_MODEL
-        self._model: SentenceTransformer | None = None
-
-    @property
-    def model(self) -> SentenceTransformer:
-        """Lazy load the sentence transformer model."""
-        if self._model is None:
-            self._model = SentenceTransformer(self.model_name)
-        return self._model
-
-    async def retrieve(
+    async def search_chunks(
         self,
-        db: AsyncSession,
-        question: str,
+        query: str,
         subject_id: uuid.UUID,
-        module_id: uuid.UUID | None = None,
-        limit: int = 5,
-        relevance_threshold: float = 0.35,
-    ) -> list[tuple[DocumentChunk, float]]:
+        module_id: Optional[uuid.UUID] = None,
+        top_k: int = 5,
+        threshold: float = 0.5
+    ) -> List[DocumentChunk]:
         """
-        Retrieve relevant DocumentChunks using semantic similarity search.
-
-        Args:
-            db: SQLAlchemy AsyncSession.
-            question: The search query (student's question).
-            subject_id: Target academic subject ID.
-            module_id: Optional target module ID.
-            limit: Maximum number of chunks to return. Defaults to 5.
-            relevance_threshold: Minimum cosine similarity score required (1 - cosine_distance).
-
-        Returns:
-            A list of tuples containing (DocumentChunk, relevance_score).
+        Search for document chunks using vector cosine distance.
         """
-        # 1. Generate query embedding vector
-        query_vector = self.model.encode(question).tolist()
-
-        # 2. Select document chunk and calculate cosine distance
-        distance_col = DocumentChunk.embedding.cosine_distance(query_vector).label("distance")
-        stmt = (
-            select(DocumentChunk, distance_col)
-            .join(Document, DocumentChunk.document_id == Document.id)
-            .where(
-                and_(
-                    Document.subject_id == subject_id,
-                    Document.is_active,
-                    Document.status == DocumentStatus.PUBLISHED,
-                    DocumentChunk.is_active,
+        try:
+            # 1. Embed query
+            query_vector = self.embedding_service.embed_query(query)
+            
+            # 2. Build base query with distance calculation
+            distance_expr = DocumentChunk.embedding.cosine_distance(query_vector)
+            
+            stmt = (
+                select(DocumentChunk)
+                .join(Document)
+                .where(
+                    DocumentChunk.is_active == True,
+                    Document.is_active == True,
+                    Document.status == DocumentStatus.READY,
+                    Document.subject_id == subject_id
                 )
             )
-            .options(selectinload(DocumentChunk.document))
-        )
+            
+            if module_id:
+                stmt = stmt.where(Document.module_id == module_id)
+                
+            # Filter by cosine distance threshold
+            # pgvector's cosine distance is 0 for identical vectors, up to 2 for opposite.
+            # A threshold of 0.5 distance means similarity > 0.5
+            stmt = stmt.where(distance_expr < threshold)
+            
+            # Order by distance ascending (closest first)
+            stmt = stmt.order_by(distance_expr)
+            stmt = stmt.limit(top_k)
+            
+            result = await self.db.execute(stmt)
+            chunks = result.scalars().all()
+            
+            return list(chunks)
+            
+        except Exception as e:
+            logger.error(f"Error during vector retrieval: {e}")
+            raise
 
+    async def search_chunks_with_scores(
+        self,
+        query: str,
+        subject_id: uuid.UUID,
+        module_id: Optional[uuid.UUID] = None,
+        top_k: int = 5,
+        threshold: float = 0.5,
+    ) -> List[Tuple[DocumentChunk, float]]:
+        """
+        Like search_chunks, but returns (chunk, relevance) pairs with the
+        parent Document eager-loaded so callers can build citations.
+        Relevance is cosine similarity in [0, 1] (1 - cosine distance,
+        exact because embeddings are L2-normalized).
+        """
+        query_vector = self.embedding_service.embed_query(query)
+        distance_expr = DocumentChunk.embedding.cosine_distance(query_vector)
+
+        stmt = (
+            select(DocumentChunk, distance_expr.label("distance"))
+            .join(Document, DocumentChunk.document_id == Document.id)
+            .options(joinedload(DocumentChunk.document))
+            .where(
+                DocumentChunk.is_active == True,
+                DocumentChunk.embedding.is_not(None),
+                Document.is_active == True,
+                Document.status.in_([DocumentStatus.READY, DocumentStatus.PUBLISHED]),
+                Document.subject_id == subject_id,
+            )
+        )
         if module_id:
             stmt = stmt.where(Document.module_id == module_id)
 
-        # Order by closest distance first (lowest distance = highest similarity)
-        stmt = stmt.order_by("distance").limit(limit)
+        stmt = stmt.where(distance_expr < threshold).order_by(distance_expr).limit(top_k)
 
-        result = await db.execute(stmt)
-        rows = result.all()
+        result = await self.db.execute(stmt)
+        rows = result.unique().all()
 
-        # 3. Filter results by relevance threshold and calculate score
-        relevant_results = []
+        scored: List[Tuple[DocumentChunk, float]] = []
+        seen_content: set[str] = set()
         for chunk, distance in rows:
-            # Cosine similarity = 1.0 - cosine_distance
-            relevance_score = 1.0 - float(distance) if distance is not None else 0.0
-            if relevance_score >= relevance_threshold:
-                relevant_results.append((chunk, relevance_score))
-
-        return relevant_results
+            key = chunk.content.strip().lower()
+            if key in seen_content:
+                continue
+            seen_content.add(key)
+            scored.append((chunk, max(0.0, min(1.0, 1.0 - float(distance)))))
+        return scored
