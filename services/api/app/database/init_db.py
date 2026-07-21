@@ -13,11 +13,48 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import hash_password
-from app.models.academic import Semester
+from app.models.academic import Department, Semester
 from app.models.answer_rule import AnswerRule
 from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
+
+
+DEFAULT_DEPARTMENTS = (
+    ("CSE", "Computer Science and Engineering"),
+    ("ECE", "Electronics and Communication Engineering"),
+    ("EEE", "Electrical and Electronics Engineering"),
+    ("ME", "Mechanical Engineering"),
+    ("CE", "Civil Engineering"),
+    ("AIDS", "Artificial Intelligence and Data Science"),
+    ("CC", "Computer Science Engineering and Cyber Security"),
+    ("CEBS", "Computer Engineering and Business Systems"),
+    ("CSD", "Computer Science and Design"),
+)
+
+
+async def create_default_departments(db: AsyncSession) -> None:
+    """Ensure the supported campus departments exist without creating duplicates."""
+    result = await db.execute(select(Department))
+    existing = {department.code.upper(): department for department in result.scalars().all()}
+    created: list[str] = []
+
+    for code, name in DEFAULT_DEPARTMENTS:
+        department = existing.get(code)
+        if department is not None:
+            department.name = name
+            department.is_active = True
+            department.archived_at = None
+            continue
+
+        db.add(Department(name=name, code=code, is_active=True))
+        created.append(code)
+
+    await db.flush()
+    if created:
+        logger.info("Created default departments: %s", ", ".join(created))
+    else:
+        logger.info("Default departments already exist")
 
 
 async def create_default_semesters(db: AsyncSession) -> None:
@@ -165,6 +202,7 @@ async def create_demo_data(db: AsyncSession) -> None:
 
 async def init_db(db: AsyncSession) -> None:
     """Run all initialization tasks."""
+    await create_default_departments(db)
     await create_default_semesters(db)
     await create_initial_admin(db)
     await create_default_answer_rules(db)

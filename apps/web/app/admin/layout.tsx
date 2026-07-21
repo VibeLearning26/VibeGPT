@@ -8,6 +8,7 @@ import { getCurrentUser, logout } from "@/lib/auth";
 import { hasRealSession } from "@/lib/api";
 
 const navItems = [
+  { icon: "D", label: "Departments", href: "/admin/departments", id: "departments" },
   { icon: "📊", label: "Dashboard", href: "/admin", id: "dashboard" },
   { icon: "📄", label: "Documents", href: "/admin/documents", id: "documents" },
   { icon: "📏", label: "Answer format", href: "/admin/answer-rules", id: "rules" },
