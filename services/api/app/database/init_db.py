@@ -13,10 +13,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import hash_password
+from app.models.academic import Semester
 from app.models.answer_rule import AnswerRule
 from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
+
+
+async def create_default_semesters(db: AsyncSession) -> None:
+    """Ensure the standard S1 through S8 semesters exist and are selectable."""
+    result = await db.execute(select(Semester))
+    existing = {semester.number: semester for semester in result.scalars().all()}
+    created: list[str] = []
+
+    for number in range(1, 9):
+        semester = existing.get(number)
+        if semester is not None:
+            # A previously archived standard semester must remain selectable.
+            semester.is_active = True
+            semester.archived_at = None
+            continue
+
+        name = f"S{number}"
+        db.add(Semester(number=number, name=name, is_active=True))
+        created.append(name)
+
+    await db.flush()
+    if created:
+        logger.info("Created default semesters: %s", ", ".join(created))
+    else:
+        logger.info("Default semesters S1-S8 already exist")
 
 
 async def create_initial_admin(db: AsyncSession) -> None:
@@ -139,6 +165,7 @@ async def create_demo_data(db: AsyncSession) -> None:
 
 async def init_db(db: AsyncSession) -> None:
     """Run all initialization tasks."""
+    await create_default_semesters(db)
     await create_initial_admin(db)
     await create_default_answer_rules(db)
     await create_demo_data(db)

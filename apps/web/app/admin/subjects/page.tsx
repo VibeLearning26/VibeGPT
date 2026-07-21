@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { SUBJECTS, ACTIVE_SEMESTERS, type Subject } from "@/lib/mockData";
+import { SUBJECTS, SEMESTER_OPTIONS, type Subject } from "@/lib/mockData";
 
 const semLabel = (sem: string) => `Semester ${sem.replace("S", "")}`;
 
@@ -19,7 +19,7 @@ export default function AdminSubjectsPage() {
   const [newName, setNewName] = useState("");
   const [newCode, setNewCode] = useState("");
   const [newIcon, setNewIcon] = useState("📖");
-  const [newSemester, setNewSemester] = useState(ACTIVE_SEMESTERS[0]);
+  const [newSemester, setNewSemester] = useState(SEMESTER_OPTIONS[0]);
   const [savedTick, setSavedTick] = useState(false);
 
   const save = () => {
@@ -46,7 +46,7 @@ export default function AdminSubjectsPage() {
     setNewName("");
     setNewCode("");
     setNewIcon("📖");
-    setNewSemester(ACTIVE_SEMESTERS[0]);
+    setNewSemester(SEMESTER_OPTIONS[0]);
     setShowNew(false);
     save();
   };
@@ -141,7 +141,7 @@ export default function AdminSubjectsPage() {
                 value={newSemester}
                 onChange={(e) => setNewSemester(e.target.value)}
               >
-                {ACTIVE_SEMESTERS.map((s) => (
+                {SEMESTER_OPTIONS.map((s) => (
                   <option key={s} value={s}>
                     {semLabel(s)}
                   </option>
