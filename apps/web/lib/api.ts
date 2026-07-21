@@ -1,6 +1,35 @@
+let redirectingToLogin = false;
+
+function readAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
+  const token = sessionStorage.getItem("access_token");
+  return token && !token.startsWith("demo-token-") ? token : null;
+}
+
+export function clearAuthSession(): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem("access_token");
+  sessionStorage.removeItem("vibegpt_user");
+}
+
+function handleUnauthorized(errorDetail: string): void {
+  if (typeof window === "undefined") return;
+  clearAuthSession();
+  sessionStorage.setItem("vibegpt_auth_error", errorDetail);
+  if (!redirectingToLogin && window.location.pathname !== "/login") {
+    redirectingToLogin = true;
+    window.location.replace("/login");
+  }
+}
+
 export async function fetchApi(endpoint: string, options: RequestInit = {}) {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-  const token = typeof window !== "undefined" ? sessionStorage.getItem("access_token") : null;
+  const configuredUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const apiUrl = configuredUrl.replace(/\/+$/, "");
+  const normalizedEndpoint =
+    apiUrl.endsWith("/api/v1") && endpoint.startsWith("/api/v1")
+      ? endpoint.slice("/api/v1".length)
+      : endpoint;
+  const token = readAccessToken();
 
   const headers = new Headers(options.headers);
   if (token) {
@@ -10,17 +39,26 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${apiUrl}${endpoint}`, {
+  const response = await fetch(`${apiUrl}${normalizedEndpoint}`, {
     ...options,
     headers,
+    credentials: options.credentials ?? "include",
   });
 
   if (!response.ok) {
     let errorDetail = "API Request Failed";
     try {
       const errorData = await response.json();
-      errorDetail = errorData.detail || errorDetail;
+      if (typeof errorData.detail === "string") {
+        errorDetail = errorData.detail;
+      } else if (Array.isArray(errorData.detail)) {
+        errorDetail = errorData.detail
+          .map((item: { msg?: string }) => item.msg)
+          .filter(Boolean)
+          .join("; ") || errorDetail;
+      }
     } catch {}
+    if (response.status === 401) handleUnauthorized(errorDetail);
     throw new Error(errorDetail);
   }
 
@@ -92,6 +130,7 @@ export interface ApiTokenResponse {
   access_token: string;
   token_type: string;
   expires_in: number;
+  role: "super_admin" | "admin" | "student";
 }
 
 export async function apiLogin(email: string, password: string): Promise<ApiTokenResponse> {

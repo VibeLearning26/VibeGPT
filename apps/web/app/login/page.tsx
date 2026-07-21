@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { mockLogin } from "@/lib/auth";
+import { isDemoMode, logout, mockLogin } from "@/lib/auth";
 import { apiLogin, fetchApi } from "@/lib/api";
 // Static import: page is a client component and all WebGL code runs in
 // useEffect, so this is SSR-safe — and it avoids the lazy-chunk delay
@@ -17,13 +17,28 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    const authError = sessionStorage.getItem("vibegpt_auth_error");
+    if (!authError) return;
+    sessionStorage.removeItem("vibegpt_auth_error");
+    const timer = window.setTimeout(() => setError(authError), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const handleLogin = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setLoading(true);
+    logout();
 
-    // 1. Try the real backend first so documents/answers are live.
     try {
+      if (isDemoMode) {
+        const demoUser = mockLogin(email, password);
+        if (!demoUser) throw new Error("Invalid demo email or password");
+        router.push(demoUser.role === "admin" ? "/admin/documents" : "/student/chat");
+        return;
+      }
+
       const token = await apiLogin(email, password);
       sessionStorage.setItem("access_token", token.access_token);
       const me = await fetchApi("/api/v1/auth/me");
@@ -32,7 +47,7 @@ export default function LoginPage() {
         JSON.stringify({
           email: me.email,
           name: me.full_name,
-          role: me.role === "student" ? "student" : "admin",
+          role: token.role === "student" ? "student" : "admin",
           initials: (me.full_name ?? "U")
             .split(" ")
             .map((w: string) => w[0])
@@ -41,23 +56,18 @@ export default function LoginPage() {
             .toUpperCase(),
         }),
       );
-      router.push(me.role === "student" ? "/student/chat" : "/admin");
+      router.push(token.role === "student" ? "/student/chat" : "/admin/documents");
       return;
-    } catch {
-      // Backend down or wrong credentials — fall through to demo accounts.
-    }
-
-    // 2. Frontend-only demo fallback.
-    await new Promise((r) => setTimeout(r, 300));
-    const user = mockLogin(email, password);
-
-    if (!user) {
-      setError("Invalid email or password. Try a demo account below.");
+    } catch (loginError) {
+      logout();
+      setError(
+        loginError instanceof Error
+          ? loginError.message
+          : "Unable to sign in. Check that the backend is running.",
+      );
       setLoading(false);
       return;
     }
-
-    router.push(user.role === "admin" ? "/admin" : "/student/chat");
   };
 
   const fill = (e: string, p: string) => {
@@ -165,7 +175,7 @@ export default function LoginPage() {
             </form>
 
             {/* Demo credentials */}
-            <div className="mt-5 pt-4 border-t border-line-soft">
+            {isDemoMode && <div className="mt-5 pt-4 border-t border-line-soft">
               <p className="text-xs font-semibold text-muted mb-3">Demo accounts — tap to fill</p>
               <div className="space-y-2">
                 <button
@@ -183,7 +193,7 @@ export default function LoginPage() {
                   <span className="text-muted">admin@vibegpt.local · admin123</span>
                 </button>
               </div>
-            </div>
+            </div>}
           </div>
 
           <p className="text-center text-xs text-faint mt-5">© 2026 VibeGPT · Campus Study Agent</p>

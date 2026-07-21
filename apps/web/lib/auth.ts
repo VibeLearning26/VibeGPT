@@ -24,7 +24,10 @@ const DEMO_ACCOUNTS: Record<string, { password: string; user: DemoUser }> = {
 
 const STORAGE_KEY = "vibegpt_user";
 
+export const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
 export function mockLogin(email: string, password: string): DemoUser | null {
+  if (!isDemoMode) return null;
   const entry = DEMO_ACCOUNTS[email.trim().toLowerCase()];
   if (!entry || entry.password !== password) return null;
   if (typeof window !== "undefined") {
