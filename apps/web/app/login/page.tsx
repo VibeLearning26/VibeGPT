@@ -9,7 +9,6 @@ import { apiLogin, fetchApi } from "@/lib/api";
 // useEffect, so this is SSR-safe — and it avoids the lazy-chunk delay
 // that made the animation pop in late.
 import Dither from "@/components/ui/Dither";
-import { mockLogin } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,39 +17,54 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-const handleLogin = async (e: React.FormEvent) => {
+  useEffect(() => {
+    const authError = sessionStorage.getItem("vibegpt_auth_error");
+    if (!authError) return;
+    sessionStorage.removeItem("vibegpt_auth_error");
+    const timer = window.setTimeout(() => setError(authError), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const handleLogin = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     logout();
 
-    // Try mock login first (works without backend)
-    const user = mockLogin(email, password);
-    if (user) {
-      router.push(user.role === 'student' ? '/student/chat' : '/admin/documents');
-      return;
-    }
-
-    // Fallback to real API
     try {
-      const { fetchApi } = await import("@/lib/api");
-      const data = await fetchApi("/api/v1/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem("access_token", data.access_token);
-        const payload = JSON.parse(atob(data.access_token.split('.')[1]));
-        sessionStorage.setItem("vibegpt_user", JSON.stringify({ email: payload.email, role: payload.role }));
-        router.push(payload.role === 'student' ? '/student/chat' : '/admin/documents');
+      if (isDemoMode) {
+        const demoUser = mockLogin(email, password);
+        if (!demoUser) throw new Error("Invalid demo email or password");
+        router.push(demoUser.role === "admin" ? "/admin/documents" : "/student/chat");
+        return;
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
-    } finally {
+
+      const token = await apiLogin(email, password);
+      sessionStorage.setItem("access_token", token.access_token);
+      const me = await fetchApi("/api/v1/auth/me");
+      sessionStorage.setItem(
+        "vibegpt_user",
+        JSON.stringify({
+          email: me.email,
+          name: me.full_name,
+          role: token.role === "student" ? "student" : "admin",
+          initials: (me.full_name ?? "U")
+            .split(" ")
+            .map((word: string) => word[0])
+            .join("")
+            .slice(0, 2)
+            .toUpperCase(),
+        }),
+      );
+      router.push(token.role === "student" ? "/student/chat" : "/admin/documents");
+    } catch (loginError) {
+      logout();
+      setError(
+        loginError instanceof Error
+          ? loginError.message
+          : "Unable to sign in. Check that the backend is running.",
+      );
       setLoading(false);
-      return;
     }
   };
 
@@ -159,25 +173,27 @@ const handleLogin = async (e: React.FormEvent) => {
             </form>
 
             {/* Demo credentials */}
-            <div className="mt-4 pt-3.5 border-t border-line-soft">
-              <p className="text-xs font-semibold text-muted mb-2.5">Demo accounts — tap to fill</p>
-              <div className="space-y-1.5">
-<button
-                   onClick={() => fill("student@vibegpt.local", "student123")}
-                   className="w-full text-left px-3 py-2 rounded-xl bg-panel-2 border border-line hover:border-[rgba(229,9,20,0.4)] transition text-xs"
-                 >
-                   <span className="badge badge-neutral mr-2">Student</span>
-                   <span className="text-muted">student@vibegpt.local · student123</span>
-                 </button>
-<button
-                   onClick={() => fill("admin@vibegpt.local", "admin123")}
-                   className="w-full text-left px-3 py-2 rounded-xl bg-panel-2 border border-line hover:border-[rgba(229,9,20,0.4)] transition text-xs"
-                 >
-                   <span className="badge badge-red mr-2">Admin</span>
-                   <span className="text-muted">admin@vibegpt.local · admin123</span>
-                 </button>
+            {isDemoMode && (
+              <div className="mt-4 pt-3.5 border-t border-line-soft">
+                <p className="text-xs font-semibold text-muted mb-2.5">Demo accounts — tap to fill</p>
+                <div className="space-y-1.5">
+                  <button
+                    onClick={() => fill("student@vibegpt.local", "student123")}
+                    className="w-full text-left px-3 py-2 rounded-xl bg-panel-2 border border-line hover:border-[rgba(229,9,20,0.4)] transition text-xs"
+                  >
+                    <span className="badge badge-neutral mr-2">Student</span>
+                    <span className="text-muted">student@vibegpt.local · student123</span>
+                  </button>
+                  <button
+                    onClick={() => fill("admin@vibegpt.local", "admin123")}
+                    className="w-full text-left px-3 py-2 rounded-xl bg-panel-2 border border-line hover:border-[rgba(229,9,20,0.4)] transition text-xs"
+                  >
+                    <span className="badge badge-red mr-2">Admin</span>
+                    <span className="text-muted">admin@vibegpt.local · admin123</span>
+                  </button>
+                </div>
               </div>
-            </div>}
+            )}
           </div>
 
           <p className="text-center text-xs text-faint mt-5">© 2026 VibeGPT · Campus Study Agent</p>
