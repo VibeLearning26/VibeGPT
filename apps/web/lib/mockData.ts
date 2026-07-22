@@ -13,6 +13,7 @@ export interface Subject {
   code: string;
   icon: string;
   semester: string; // e.g. "S5"
+  department: string; // department code, e.g. "CSE"
   keywords: string[]; // used to route a question to this subject
   modules: Module[];
   materials: number;
@@ -60,6 +61,7 @@ export const SUBJECTS: Subject[] = [
     code: "CS301",
     icon: "🗄️",
     semester: "S5",
+    department: "CSE",
     keywords: [
       "database", "dbms", "sql", "query", "relational", "table", "schema",
       "normalization", "normal form", "bcnf", "acid", "transaction", "join",
@@ -80,6 +82,7 @@ export const SUBJECTS: Subject[] = [
     code: "CS302",
     icon: "🖥️",
     semester: "S5",
+    department: "CSE",
     keywords: [
       "operating system", "process", "thread", "scheduling", "scheduler",
       "cpu", "round robin", "sjf", "fcfs", "memory", "paging", "segmentation",
@@ -100,6 +103,7 @@ export const SUBJECTS: Subject[] = [
     code: "CS303",
     icon: "🌐",
     semester: "S5",
+    department: "CSE",
     keywords: [
       "network", "networking", "osi", "tcp", "udp", "ip", "packet", "routing",
       "router", "switch", "switching", "transport layer", "application layer",
@@ -119,6 +123,7 @@ export const SUBJECTS: Subject[] = [
     code: "CS304",
     icon: "🧮",
     semester: "S5",
+    department: "CSE",
     keywords: [
       "algorithm", "asymptotic", "complexity", "big o", "recurrence",
       "master theorem", "divide and conquer", "greedy", "dynamic programming",
@@ -140,6 +145,7 @@ export const SUBJECTS: Subject[] = [
     code: "CS201",
     icon: "🌳",
     semester: "S3",
+    department: "CSE",
     keywords: [
       "data structure", "array", "linked list", "stack", "queue", "tree",
       "binary tree", "bst", "heap", "hash", "hashing", "hash table", "graph",
@@ -159,6 +165,7 @@ export const SUBJECTS: Subject[] = [
     code: "MA201",
     icon: "➗",
     semester: "S3",
+    department: "CSE",
     keywords: [
       "discrete", "set", "sets", "relation", "function", "logic",
       "proposition", "predicate", "proof", "induction", "combinatorics",
@@ -213,9 +220,21 @@ export const SAVED_ANSWERS: SavedAnswer[] = [
   },
 ];
 
-export const MARKS_OPTIONS = [2, 5, 10];
+export const MARKS_OPTIONS = [2, 3, 5, 8, 10];
 
 export const SEMESTER_OPTIONS = ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8"];
+
+export const DEPARTMENTS = [
+  { code: "CSE", name: "Computer Science and Engineering" },
+  { code: "AIML", name: "Artificial Intelligence and Machine Learning" },
+  { code: "ECE", name: "Electronics and Communication Engineering" },
+  { code: "EEE", name: "Electrical and Electronics Engineering" },
+  { code: "ME", name: "Mechanical Engineering" },
+  { code: "CE", name: "Civil Engineering" },
+  { code: "IT", name: "Information Technology" },
+  { code: "AE", name: "Automobile Engineering" },
+  { code: "SH", name: "Science and Humanities" },
+] as const;
 
 // Semesters that actually have subjects/materials, in order.
 export const ACTIVE_SEMESTERS = SEMESTER_OPTIONS.filter((sem) =>
@@ -235,8 +254,12 @@ export interface RouteResult {
 // Mock "AI router": decides which subject (and module) a question belongs to,
 // scoped to the chosen semester. This is the seam where a real RAG / classifier
 // API call would later plug in — swap the keyword scoring for a fetch().
-export function routeQuestion(question: string, sem: string): RouteResult | null {
-  const subjects = subjectsBySemester(sem);
+export function routeQuestion(
+  question: string,
+  sem: string,
+  catalog: Subject[] = SUBJECTS,
+): RouteResult | null {
+  const subjects = catalog.filter((s) => s.semester === sem);
   if (subjects.length === 0) return null;
 
   const q = question.toLowerCase();
@@ -261,6 +284,14 @@ export function routeQuestion(question: string, sem: string): RouteResult | null
       .split(/[^a-z]+/)
       .filter((w) => w.length > 3)
       .reduce((acc, w) => (q.includes(w) ? acc + 1 : acc), 0);
+
+  if (best.modules.length === 0) {
+    return {
+      subject: best,
+      module: { id: `${best.id}-general`, name: "General", materials: 0 },
+      confidence: bestScore > 0 ? "high" : "low",
+    };
+  }
 
   let bestModule = best.modules[0];
   let moduleScore = scoreModule(bestModule);

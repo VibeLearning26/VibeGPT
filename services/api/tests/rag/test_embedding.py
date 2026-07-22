@@ -1,7 +1,9 @@
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from app.rag.embedding import EmbeddingService, EmbeddingError
+import pytest
+
+from app.rag.embedding import EmbeddingService
+
 
 @pytest.fixture
 def mock_sentence_transformer():
@@ -14,13 +16,13 @@ def test_embed_query_success(mock_sentence_transformer):
     # Setup mock
     import numpy as np
     mock_sentence_transformer.encode.return_value = np.array([0.1, 0.2, 0.3])
-    
+
     # Ensure singleton is fresh for test
     EmbeddingService._instance = None
     service = EmbeddingService()
-    
+
     result = service.embed_query("test query")
-    
+
     assert result == [0.1, 0.2, 0.3]
     mock_sentence_transformer.encode.assert_called_once_with("test query", normalize_embeddings=True)
 
@@ -32,7 +34,7 @@ def test_embed_query_empty_input():
         service = EmbeddingService()
         with pytest.raises(ValueError, match="Input text cannot be empty"):
             service.embed_query("")
-        
+
         with pytest.raises(ValueError, match="Input text cannot be empty"):
             service.embed_query("   ")
 
@@ -42,11 +44,11 @@ def test_embed_batch_success(mock_sentence_transformer):
         [0.1, 0.2],
         [0.3, 0.4]
     ])
-    
+
     EmbeddingService._instance = None
     service = EmbeddingService()
-    
+
     result = service.embed_batch(["text1", "text2"])
-    
+
     assert result == [[0.1, 0.2], [0.3, 0.4]]
     mock_sentence_transformer.encode.assert_called_once_with(["text1", "text2"], normalize_embeddings=True)

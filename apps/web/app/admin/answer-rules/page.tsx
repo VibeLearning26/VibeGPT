@@ -27,6 +27,17 @@ const DEFAULT_RULES: Rule[] = [
     style: "concise",
   },
   {
+    marks: 3,
+    name: "Short answer",
+    minWords: 60,
+    maxWords: 100,
+    points: 3,
+    requireExample: false,
+    requireConclusion: false,
+    requireCitations: true,
+    style: "concise",
+  },
+  {
     marks: 5,
     name: "Standard answer",
     minWords: 120,
@@ -36,6 +47,17 @@ const DEFAULT_RULES: Rule[] = [
     requireConclusion: false,
     requireCitations: true,
     style: "academic",
+  },
+  {
+    marks: 8,
+    name: "Extended answer",
+    minWords: 200,
+    maxWords: 280,
+    points: 5,
+    requireExample: true,
+    requireConclusion: true,
+    requireCitations: true,
+    style: "detailed_academic",
   },
   {
     marks: 10,
@@ -83,7 +105,7 @@ function Toggle({
 
 export default function AnswerRulesPage() {
   const [rules, setRules] = useState<Rule[]>(DEFAULT_RULES);
-  const [active, setActive] = useState(1);
+  const [active, setActive] = useState(2);
   const [savedTick, setSavedTick] = useState(false);
 
   const rule = rules[active];

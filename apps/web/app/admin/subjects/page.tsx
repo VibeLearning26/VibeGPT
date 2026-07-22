@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { SUBJECTS, ACTIVE_SEMESTERS, type Subject } from "@/lib/mockData";
+import { useEffect, useState } from "react";
+import { DEPARTMENTS, SEMESTER_OPTIONS, SUBJECTS, type Subject } from "@/lib/mockData";
+import { readDemoSubjects, writeDemoSubjects } from "@/lib/demoAcademic";
 
 const semLabel = (sem: string) => `Semester ${sem.replace("S", "")}`;
 
@@ -19,10 +20,17 @@ export default function AdminSubjectsPage() {
   const [newName, setNewName] = useState("");
   const [newCode, setNewCode] = useState("");
   const [newIcon, setNewIcon] = useState("📖");
-  const [newSemester, setNewSemester] = useState(ACTIVE_SEMESTERS[0]);
+  const [newSemester, setNewSemester] = useState(SEMESTER_OPTIONS[0]);
+  const [newDepartment, setNewDepartment] = useState<string>(DEPARTMENTS[0].code);
   const [savedTick, setSavedTick] = useState(false);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSubjects(readDemoSubjects()), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const save = () => {
+    writeDemoSubjects(subjects);
     setSavedTick(true);
     setTimeout(() => setSavedTick(false), 1800);
   };
@@ -30,25 +38,29 @@ export default function AdminSubjectsPage() {
   const addSubject = () => {
     if (!newName.trim() || !newCode.trim()) return;
     const id = `sub-${Date.now()}`;
-    setSubjects((prev) => [
-      ...prev,
-      {
+    setSubjects((prev) => {
+      const next = [...prev, {
         id,
         name: newName.trim(),
         code: newCode.trim().toUpperCase(),
         icon: newIcon,
         semester: newSemester,
+        department: newDepartment,
         keywords: keywordsFromName(newName),
         materials: 0,
         modules: [{ id: `${id}-1`, name: "Module 1", materials: 0 }],
-      },
-    ]);
+      }];
+      writeDemoSubjects(next);
+      return next;
+    });
     setNewName("");
     setNewCode("");
     setNewIcon("📖");
-    setNewSemester(ACTIVE_SEMESTERS[0]);
+    setNewSemester(SEMESTER_OPTIONS[0]);
+    setNewDepartment(DEPARTMENTS[0].code);
     setShowNew(false);
-    save();
+    setSavedTick(true);
+    setTimeout(() => setSavedTick(false), 1800);
   };
 
   const addModule = (subjectId: string) => {
@@ -92,6 +104,14 @@ export default function AdminSubjectsPage() {
     );
   };
 
+  const updateSubject = (subjectId: string, field: "department" | "semester", value: string) => {
+    setSubjects((prev) =>
+      prev.map((subject) =>
+        subject.id === subjectId ? { ...subject, [field]: value } : subject,
+      ),
+    );
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-5 sm:px-8 py-8">
       <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
@@ -115,7 +135,7 @@ export default function AdminSubjectsPage() {
           <p className="text-[11px] font-semibold uppercase tracking-wider text-faint mb-4">
             Create new subject
           </p>
-          <div className="grid sm:grid-cols-4 gap-3 mb-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
             <div>
               <label className="field-label">Name</label>
               <input
@@ -135,13 +155,27 @@ export default function AdminSubjectsPage() {
               />
             </div>
             <div>
+              <label className="field-label">Department</label>
+              <select
+                className="input cursor-pointer"
+                value={newDepartment}
+                onChange={(e) => setNewDepartment(e.target.value)}
+              >
+                {DEPARTMENTS.map((department) => (
+                  <option key={department.code} value={department.code}>
+                    {department.code} — {department.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="field-label">Semester</label>
               <select
                 className="input cursor-pointer"
                 value={newSemester}
                 onChange={(e) => setNewSemester(e.target.value)}
               >
-                {ACTIVE_SEMESTERS.map((s) => (
+                {SEMESTER_OPTIONS.map((s) => (
                   <option key={s} value={s}>
                     {semLabel(s)}
                   </option>
@@ -181,6 +215,7 @@ export default function AdminSubjectsPage() {
                 <div className="flex items-center gap-2">
                   <h2 className="font-semibold truncate">{s.name}</h2>
                   <span className="badge badge-neutral">{s.code}</span>
+                  <span className="badge badge-neutral">{s.department}</span>
                   <span className="badge badge-red">{semLabel(s.semester)}</span>
                 </div>
                 <p className="text-xs text-faint mt-0.5">
@@ -200,6 +235,34 @@ export default function AdminSubjectsPage() {
             {/* Modules list / editor */}
             {editingId === s.id && (
               <div className="space-y-2 fade-in">
+                <div className="grid sm:grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <label className="field-label">Department</label>
+                    <select
+                      className="input cursor-pointer"
+                      value={s.department}
+                      onChange={(e) => updateSubject(s.id, "department", e.target.value)}
+                    >
+                      {DEPARTMENTS.map((department) => (
+                        <option key={department.code} value={department.code}>
+                          {department.code} — {department.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="field-label">Semester</label>
+                    <select
+                      className="input cursor-pointer"
+                      value={s.semester}
+                      onChange={(e) => updateSubject(s.id, "semester", e.target.value)}
+                    >
+                      {SEMESTER_OPTIONS.map((semester) => (
+                        <option key={semester} value={semester}>{semLabel(semester)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-faint mb-2">
                   Modules
                 </p>
