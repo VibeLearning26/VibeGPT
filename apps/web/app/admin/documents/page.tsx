@@ -1,356 +1,348 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { fetchSemesters, fetchSubjectsWithModules, fetchDocuments, fetchDocumentJob, retryDocument, publishDocument, archiveDocument, SubjectWithModules, DocumentListItem, ProcessingJobResponse } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  adminApi,
+  inferSourceType,
+  type ApiDocument,
+  type ApiModule,
+  type ApiSemester,
+  type ApiSubject,
+  type SourceTypeValue,
+} from "@/lib/api";
+import { isDemoMode } from "@/lib/auth";
+import { readDemoSubjects } from "@/lib/demoAcademic";
+import { SEMESTER_OPTIONS } from "@/lib/mockData";
 
 interface Upload {
   id: string;
   name: string;
   size: string;
-  module: string;
-  progress: number;
-  status: "uploading" | "processing" | "done" | "error";
+  moduleName: string;
+  status: "uploading" | "processing" | "done" | "failed";
   error?: string;
-}
-
-interface Semester {
-  id: string;
-  name: string;
-  number: number;
-  is_active: boolean;
+  documentId?: string;
 }
 
 const EXT_ICON: Record<string, string> = {
-  pdf: "PDF",
-  ppt: "PPT",
-  pptx: "PPTX",
-  doc: "DOC",
-  docx: "DOCX",
-  xls: "XLS",
-  xlsx: "XLSX",
+  pdf: "📕",
+  pptx: "📙",
+  docx: "📘",
+  xlsx: "📗",
+};
+
+const CATEGORY_OPTIONS: { value: SourceTypeValue | "auto"; label: string }[] = [
+  { value: "auto", label: "Auto (by file type)" },
+  { value: "pdf_notes", label: "Notes (PDF)" },
+  { value: "pptx_presentation", label: "Presentation" },
+  { value: "docx_notes", label: "Notes (DOCX)" },
+  { value: "xlsx_question_bank", label: "Question bank" },
+  { value: "previous_year_paper", label: "Previous year paper" },
+  { value: "teacher_answer", label: "Teacher answer" },
+  { value: "teacher_example", label: "Teacher example" },
+  { value: "other", label: "Other" },
+];
+
+const STATUS_BADGE: Record<string, { cls: string; label: string }> = {
+  uploaded: { cls: "badge-neutral", label: "Uploaded" },
+  processing: { cls: "badge-warning", label: "Processing" },
+  needs_review: { cls: "badge-warning", label: "Needs review" },
+  ready: { cls: "badge-success", label: "✓ Ready" },
+  published: { cls: "badge-red", label: "● Published" },
+  failed: { cls: "badge-error", label: "Failed" },
+  archived: { cls: "badge-neutral", label: "Archived" },
 };
 
 const ext = (name: string) => name.split(".").pop()?.toLowerCase() ?? "";
 
-let uploadCounter = 0;
-
-const STATUS_LABELS: Record<string, { label: string; variant: "success" | "warning" | "error" | "neutral" }> = {
-  uploaded: { label: "Uploaded", variant: "neutral" },
-  processing: { label: "Processing", variant: "warning" },
-  needs_review: { label: "Needs Review", variant: "warning" },
-  ready: { label: "Ready", variant: "success" },
-  published: { label: "Published", variant: "success" },
-  failed: { label: "Failed", variant: "error" },
-  archived: { label: "Archived", variant: "neutral" },
-  pending: { label: "Pending", variant: "neutral" },
-  running: { label: "Running", variant: "warning" },
-  completed: { label: "Completed", variant: "success" },
-  cancelled: { label: "Cancelled", variant: "neutral" },
-};
-
-function getStatusBadge(status: string) {
-  const config = STATUS_LABELS[status] ?? { label: status, variant: "neutral" };
-  const variantClasses = {
-    success: "badge-success",
-    warning: "badge-warning",
-    error: "badge-error",
-    neutral: "badge-neutral",
-  };
-  return (
-    <span className={`badge ${variantClasses[config.variant]}`}>
-      {config.label}
-    </span>
-  );
-}
+let counter = 0;
 
 export default function DocumentsPage() {
+  const [semesters, setSemesters] = useState<ApiSemester[]>([]);
+  const [subjects, setSubjects] = useState<ApiSubject[]>([]);
   const [semesterId, setSemesterId] = useState<string>("");
-  const [semesters, setSemesters] = useState<Semester[]>([]);
-  const [subjects, setSubjects] = useState<SubjectWithModules[]>([]);
-  const [documents, setDocuments] = useState<DocumentListItem[]>([]);
-  const [jobs, setJobs] = useState<Record<string, ProcessingJobResponse>>({});
-  const [loadingSubjects, setLoadingSubjects] = useState(false);
-  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch semesters on mount
-  useEffect(() => {
-    fetchSemesters()
-      .then((data) => {
-        const active = data.filter((s: Semester) => s.is_active);
-        setSemesters(active);
-        if (active.length > 0 && !semesterId) {
-          setSemesterId(active[0].id);
-        }
-      })
-      .catch(() => setError("Failed to load semesters"));
-  }, [semesterId]);
-
-  // Fetch subjects when semester changes
-  useEffect(() => {
-    if (!semesterId) return;
-    let cancelled = false;
-
-    const loadSubjects = async () => {
-      setLoadingSubjects(true);
-      try {
-        const data = await fetchSubjectsWithModules(semesterId);
-        if (!cancelled) {
-          setSubjects(data.filter((s) => s.is_active));
-        }
-      } catch {
-        if (!cancelled) setError("Failed to load subjects");
-      } finally {
-        if (!cancelled) setLoadingSubjects(false);
+  const fetchData = useCallback(async () => {
+    try {
+      if (isDemoMode) {
+        const demoSemesters: ApiSemester[] = SEMESTER_OPTIONS.map((semester, index) => ({
+          id: semester,
+          number: index + 1,
+          name: `Semester ${index + 1}`,
+          is_active: true,
+        }));
+        const demoSubjects: ApiSubject[] = readDemoSubjects().map((subject) => ({
+          id: subject.id,
+          name: subject.name,
+          code: subject.code,
+          description: null,
+          department_id: subject.department,
+          semester_id: subject.semester,
+          credits: null,
+          is_active: true,
+        }));
+        setSemesters(demoSemesters);
+        setSubjects(demoSubjects);
+        setSemesterId((prev) => prev || "S1");
+        setError(null);
+        return;
       }
-    };
+      const [sems, subs] = await Promise.all([
+        adminApi.listSemesters(),
+        adminApi.listSubjects(),
+      ]);
+      sems.sort((a, b) => a.number - b.number);
+      setSemesters(sems);
+      setSubjects(subs);
+      setSemesterId((prev) => prev || (sems[0]?.id ?? ""));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load subjects");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-    loadSubjects();
-    return () => { cancelled = true; };
-  }, [semesterId]);
-
-// Fetch documents for selected semester's subjects
-   useEffect(() => {
-     if (!semesterId || subjects.length === 0) return;
-     let cancelled = false;
-
-     const loadDocuments = async () => {
-       setLoadingDocs(true);
-       try {
-         const data = await fetchDocuments({ subject_id: subjects[0].id });
-         if (!cancelled) setDocuments(data);
-       } catch {
-         if (!cancelled) setError("Failed to load documents");
-       } finally {
-         if (!cancelled) setLoadingDocs(false);
-       }
-     };
-
-    loadDocuments();
-    return () => { cancelled = true; };
-  }, [semesterId, subjects]);
-
-  // Poll job statuses for documents that are processing
+  // Initial state is already loading=true, so the effect only starts the fetch.
+  // Deferred via setTimeout to satisfy react-hooks/set-state-in-effect.
   useEffect(() => {
-    const processingDocs = documents.filter((d) => 
-      ["processing", "pending", "running"].includes(d.status)
-    );
-    
-    if (processingDocs.length === 0) return;
+    const timer = window.setTimeout(fetchData, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchData]);
 
-    const interval = setInterval(async () => {
-      for (const doc of processingDocs) {
-        try {
-          const job = await fetchDocumentJob(doc.id);
-          setJobs((prev) => ({ ...prev, [doc.id]: job }));
-          
-          // Update document status from job
-          if (job.status === "completed" || job.status === "failed") {
-            setDocuments((prev) => prev.map((d) => 
-              d.id === doc.id 
-                ? { ...d, status: job.status === "completed" ? "ready" : "failed", total_chunks: job.chunks_created }
-                : d
-            ));
-          }
-        } catch {}
-      }
-    }, 5000);
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    fetchData();
+  }, [fetchData]);
 
-    return () => clearInterval(interval);
-  }, [documents]);
-
-  if (!semesterId) return null;
+  const visibleSubjects = subjects.filter(
+    (subject) => subject.is_active && (!semesterId || subject.semester_id === semesterId),
+  );
 
   return (
     <div className="max-w-4xl mx-auto px-5 sm:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-2xl font-bold">Upload study material</h1>
         <p className="text-sm text-muted mt-1">
-          Pick a semester, then add PDF, PPT, DOCX or XLSX files under each subject.
-          The pipeline processes and indexes them.
+          Pick a semester, then add PDF, PPTX, DOCX or XLSX files under each subject.
+          Files are extracted, chunked and embedded so VibeGPT can answer from them.
         </p>
       </div>
 
+      {/* Error state */}
       {error && (
-        <div className="alert alert-error mb-6">
-          <span>{error}</span>
+        <div className="panel p-5 mb-6 text-center">
+          <p className="text-sm text-muted mb-3">
+            <span className="badge badge-error mr-2">Error</span>
+            {error}
+          </p>
+          <p className="text-xs text-faint mb-3">
+            Is the backend running? Log in with a real admin account — demo mode
+            has no live subjects.
+          </p>
+          <button onClick={load} className="btn-ghost">
+            ↻ Retry
+          </button>
         </div>
       )}
 
-      {/* Semester picker */}
-      <div className="panel p-5 mb-6">
-        <label className="field-label">Semester</label>
-        <select
-          value={semesterId}
-          onChange={(e) => setSemesterId(e.target.value)}
-          className="input cursor-pointer"
-          disabled={loadingSubjects || semesters.length === 0}
-        >
-          {semesters.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name} (Semester {s.number})
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Subjects in this semester  --  one upload card each */}
-      <div className="space-y-4">
-        {subjects.length === 0 ? (
-          <div className="panel p-8 text-center text-sm text-muted">
-            No subjects in this semester yet.
+      {/* Loading state */}
+      {loading && !error && (
+        <div className="space-y-4">
+          <div className="panel p-5">
+            <div className="skeleton h-4 w-24 mb-2" />
+            <div className="skeleton h-9 w-full" />
           </div>
-        ) : (
-          subjects.map((subject) => (
-            <SubjectUploadCard 
-              key={subject.id} 
-              subject={subject}
-              onUploadComplete={() => {
-                // Refresh documents after upload
-                fetchDocuments({ subject_id: subject.id }).then(setDocuments);
-              }}
-            />
-          ))
-        )}
-      </div>
-
-      {/* Existing Documents List */}
-      <div className="mt-10">
-        <h2 className="text-lg font-semibold mb-4">Uploaded Documents</h2>
-        {loadingDocs ? (
-          <div className="panel p-8 text-center text-muted">Loading documents...</div>
-        ) : documents.length === 0 ? (
-          <div className="panel p-8 text-center text-sm text-muted">
-            No documents uploaded yet.
+          <div className="card p-5">
+            <div className="skeleton h-5 w-2/5 mb-3" />
+            <div className="skeleton h-24 w-full" />
           </div>
-        ) : (
-          <div className="space-y-3">
-            {documents.map((doc) => (
-              <DocumentRow 
-                key={doc.id} 
-                doc={doc} 
-                job={jobs[doc.id]}
-                onRetry={() => handleRetry(doc.id)}
-                onPublish={() => handlePublish(doc.id)}
-                onArchive={() => handleArchive(doc.id)}
-                onRefresh={() => refreshDocuments()}
-              />
+        </div>
+      )}
+
+      {!loading && !error && (
+        <>
+          {/* Semester picker */}
+          <div className="panel p-5 mb-6">
+            <label className="field-label" htmlFor="semester-select">
+              Semester
+            </label>
+            <select
+              id="semester-select"
+              value={semesterId}
+              onChange={(e) => setSemesterId(e.target.value)}
+              className="input cursor-pointer"
+            >
+              {semesters.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name || `Semester ${s.number}`}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Subjects in this semester — one upload card each */}
+          <div className="space-y-4">
+            {visibleSubjects.map((subject) => (
+              <SubjectUploadCard key={subject.id} subject={subject} demo={isDemoMode} />
             ))}
+            {visibleSubjects.length === 0 && (
+              <div className="panel p-8 text-center text-sm text-muted">
+                No subjects in this semester yet. Create subjects in the
+                Subjects section first.
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
-
-  async function handleRetry(docId: string) {
-    try {
-      await retryDocument(docId);
-      await refreshDocuments();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
-
-  async function handlePublish(docId: string) {
-    try {
-      await publishDocument(docId);
-      await refreshDocuments();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
-
-  async function handleArchive(docId: string) {
-    try {
-      await archiveDocument(docId);
-      await refreshDocuments();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
-
-  async function refreshDocuments() {
-    if (!subjects.length) return;
-    setLoadingDocs(true);
-    try {
-      const data = await fetchDocuments({ subject_id: subjects[0].id });
-      setDocuments(data);
-    } finally {
-      setLoadingDocs(false);
-    }
-  }
 }
 
-function SubjectUploadCard({ subject, onUploadComplete }: { subject: SubjectWithModules; onUploadComplete: () => void }) {
-  const [moduleId, setModuleId] = useState(subject.modules[0]?.id ?? "");
+function SubjectUploadCard({ subject, demo }: { subject: ApiSubject; demo: boolean }) {
+  const [modules, setModules] = useState<ApiModule[]>([]);
+  const [moduleId, setModuleId] = useState<string>("");
+  const [category, setCategory] = useState<SourceTypeValue | "auto">("auto");
   const [dragging, setDragging] = useState(false);
   const [uploads, setUploads] = useState<Upload[]>([]);
+  const [docs, setDocs] = useState<ApiDocument[]>([]);
+  const [showDocs, setShowDocs] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const selectedModule = useMemo(
-    () => subject.modules.find((m) => m.id === moduleId) ?? subject.modules[0],
-    [subject.modules, moduleId]
-  );
-
-  const uploadFile = useCallback(
-    async (file: File, modId: string, subId: string, uploadId: string) => {
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("subject_id", subId);
-      formData.append("module_id", modId);
-      formData.append("source_type", "other");
-
-      const token = typeof window !== "undefined" ? sessionStorage.getItem("access_token") : null;
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/admin/documents/upload`, {
-        method: "POST",
-        body: formData,
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: "Upload failed" }));
-        throw new Error(error.detail || "Upload failed");
-      }
-
-      setUploads((prev) =>
-        prev.map((u) =>
-          u.id === uploadId ? { ...u, progress: 100, status: "done" } : u
-        )
-      );
-      onUploadComplete();
-    } catch (err) {
-      setUploads((prev) =>
-        prev.map((u) =>
-          u.id === uploadId ? { ...u, status: "error", error: (err as Error).message } : u
-        )
-      );
+  useEffect(() => {
+    if (demo) {
+      const local = readDemoSubjects().find((item) => item.id === subject.id);
+      setModules((local?.modules ?? []).map((module, index) => ({
+        id: module.id,
+        name: module.name,
+        number: index + 1,
+        description: null,
+        subject_id: subject.id,
+        is_active: true,
+      })));
+      return;
     }
-  }, [onUploadComplete]);
+    let cancelled = false;
+    adminApi.listModules(subject.id).then((items) => {
+      if (cancelled) return;
+      items.sort((a, b) => a.number - b.number);
+      setModules(items);
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, subject.id]);
 
-  const addFiles = useCallback((files: FileList | File[]) => {
-    for (const f of Array.from(files)) {
-      const fileExt = ext(f.name);
-      if (!["pdf", "ppt", "pptx", "doc", "docx", "xls", "xlsx"].includes(fileExt)) {
-        alert(`Unsupported file type: ${fileExt}`);
-        continue;
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const refreshDocs = useCallback(async () => {
+    if (demo) return [];
+    try {
+      const list = await adminApi.listDocuments(subject.id);
+      setDocs(list);
+      return list;
+    } catch {
+      return [];
+    }
+  }, [demo, subject.id]);
+
+  useEffect(() => {
+    refreshDocs();
+  }, [refreshDocs]);
+
+  /** Poll until no document for this subject is still processing. */
+  const pollProcessing = useCallback(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      const list = await refreshDocs();
+      const stillProcessing = list.some(
+        (d) => d.status === "processing" || d.status === "uploaded",
+      );
+      setUploads((prev) =>
+        prev.map((u) => {
+          if (u.status !== "processing" || !u.documentId) return u;
+          const doc = list.find((d) => d.id === u.documentId);
+          if (!doc) return u;
+          if (doc.status === "ready" || doc.status === "published")
+            return { ...u, status: "done" };
+          if (doc.status === "failed")
+            return { ...u, status: "failed", error: "Processing failed" };
+          return u;
+        }),
+      );
+      if (!stillProcessing && pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
       }
+    }, 2500);
+  }, [refreshDocs]);
 
-      const id = `upl_${Date.now()}_${uploadCounter++}`;
+  const selectedModule = modules.find((m) => m.id === moduleId);
+
+  const addFiles = async (files: FileList | File[]) => {
+    for (const f of Array.from(files)) {
+      const id = `u${counter++}`;
       const upload: Upload = {
         id,
         name: f.name,
         size: `${(f.size / 1024 / 1024).toFixed(1)} MB`,
-        module: selectedModule.name,
-        progress: 0,
+        moduleName: selectedModule?.name ?? "Whole subject",
         status: "uploading",
       };
       setUploads((prev) => [upload, ...prev]);
-      uploadFile(f, selectedModule.id, subject.id, id);
+
+      try {
+        if (demo) {
+          await new Promise((resolve) => window.setTimeout(resolve, 450));
+          setUploads((prev) => prev.map((item) =>
+            item.id === id ? { ...item, status: "done" } : item,
+          ));
+          continue;
+        }
+        const res = await adminApi.uploadDocument({
+          file: f,
+          subject_id: subject.id,
+          module_id: moduleId || null,
+          source_type: inferSourceType(f.name, category),
+        });
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === id ? { ...u, status: "processing", documentId: res.id } : u,
+          ),
+        );
+        pollProcessing();
+      } catch (e) {
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === id
+              ? {
+                  ...u,
+                  status: "failed",
+                  error: e instanceof Error ? e.message : "Upload failed",
+                }
+              : u,
+          ),
+        );
+      }
     }
-  }, [selectedModule.id, selectedModule.name, subject.id, uploadFile]);
+  };
+
+  const publish = async (documentId: string) => {
+    try {
+      await adminApi.publishDocument(documentId);
+      await refreshDocs();
+    } catch {
+      // list refresh below will show the true state
+    }
+  };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -358,17 +350,14 @@ function SubjectUploadCard({ subject, onUploadComplete }: { subject: SubjectWith
     if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.length) addFiles(e.target.files);
-    e.target.value = "";
-  };
+  const indexed = docs.filter((d) => d.status === "ready" || d.status === "published");
 
   return (
     <div className="card p-5 fade-up">
-      {/* Subject header + module picker */}
-      <div className="flex items-start gap-3 mb-4">
+      {/* Subject header + module & category pickers */}
+      <div className="flex items-start gap-3 mb-4 flex-wrap">
         <div className="w-11 h-11 rounded-xl bg-panel-2 border border-line flex items-center justify-center text-xl">
-          SUB
+          📚
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
@@ -376,22 +365,46 @@ function SubjectUploadCard({ subject, onUploadComplete }: { subject: SubjectWith
             <span className="badge badge-neutral">{subject.code}</span>
           </div>
           <p className="text-xs text-faint mt-0.5">
-            {subject.modules.length} modules
+            {modules.length} modules · {docs.length} documents ·{" "}
+            {indexed.length} indexed
           </p>
         </div>
-        <div className="min-w-[42%] sm:min-w-[200px]">
-          <label className="field-label">Module</label>
-          <select
-            value={moduleId}
-            onChange={(e) => setModuleId(e.target.value)}
-            className="input cursor-pointer !py-1.5 text-[13px]"
-          >
-            {subject.modules.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
+        <div className="flex gap-2 flex-wrap">
+          <div className="min-w-[160px]">
+            <label className="field-label" htmlFor={`module-${subject.id}`}>
+              Module
+            </label>
+            <select
+              id={`module-${subject.id}`}
+              value={moduleId}
+              onChange={(e) => setModuleId(e.target.value)}
+              className="input cursor-pointer !py-1.5 text-[13px]"
+            >
+              <option value="">Whole subject</option>
+              {modules.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-[160px]">
+            <label className="field-label" htmlFor={`category-${subject.id}`}>
+              Category
+            </label>
+            <select
+              id={`category-${subject.id}`}
+              value={category}
+              onChange={(e) => setCategory(e.target.value as SourceTypeValue | "auto")}
+              className="input cursor-pointer !py-1.5 text-[13px]"
+            >
+              {CATEGORY_OPTIONS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -404,22 +417,26 @@ function SubjectUploadCard({ subject, onUploadComplete }: { subject: SubjectWith
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
         onClick={() => inputRef.current?.click()}
-        className={`panel border-dashed cursor-pointer text-center py-8 transition-all ${dragging ? "bg-brand-accent/10 border-brand-accent" : ""}`}
+        className={`panel border-dashed cursor-pointer text-center py-8 transition-all ${
+          dragging ? "glow-ring border-brand bg-[rgba(229,9,20,0.04)]" : ""
+        }`}
       >
         <input
           ref={inputRef}
           type="file"
           multiple
-          accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx"
+          accept=".pdf,.pptx,.docx,.xlsx"
           className="hidden"
-          onChange={handleFileSelect}
+          onChange={(e) => e.target.files && addFiles(e.target.files)}
         />
         <p className="font-semibold text-sm">
-          {dragging ? "Drop files to upload" : "Drag & drop or click to browse"}
+          {dragging ? "Drop files to upload" : "⬆ Drag & drop or click to browse"}
         </p>
         <p className="text-xs text-faint mt-1">
-          PDF, PPT, DOCX, XLSX  *  uploading to{" "}
-          <span className="text-brand-accent">{selectedModule.name}</span>
+          PDF, PPTX, DOCX, XLSX · uploading to{" "}
+          <span className="text-brand-accent">
+            {selectedModule?.name ?? "whole subject"}
+          </span>
         </p>
       </div>
 
@@ -429,143 +446,82 @@ function SubjectUploadCard({ subject, onUploadComplete }: { subject: SubjectWith
           {uploads.map((u) => (
             <div key={u.id} className="card p-3.5 fade-up">
               <div className="flex items-center gap-3">
-                <span className="text-2xl">{EXT_ICON[ext(u.name)] ?? "FILE"}</span>
+                <span className="text-xl">{EXT_ICON[ext(u.name)] ?? "📎"}</span>
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium truncate">{u.name}</p>
                   <p className="text-[11px] text-faint">
-                    {u.size}  *  {u.module}
+                    {u.size} · {u.moduleName}
+                    {u.error ? ` · ${u.error}` : ""}
                   </p>
                 </div>
                 {u.status === "done" ? (
-                  <span className="badge badge-success">OK Indexed</span>
+                  <span className="badge badge-success">✓ Indexed</span>
+                ) : u.status === "failed" ? (
+                  <span className="badge badge-error">✕ Failed</span>
                 ) : u.status === "processing" ? (
                   <span className="badge badge-warning">Processing</span>
-                ) : u.status === "error" ? (
-                  <span className="badge badge-error">Error</span>
                 ) : (
-                  <span className="text-xs text-faint">{u.progress}%</span>
+                  <span className="badge badge-neutral">Uploading…</span>
                 )}
               </div>
-              {u.status !== "done" && u.status !== "error" && (
+              {(u.status === "uploading" || u.status === "processing") && (
                 <div className="mt-3 h-1.5 rounded-full bg-panel-2 overflow-hidden">
                   <div
-                    className="h-full rounded-full transition-all duration-200"
+                    className="h-full rounded-full transition-all duration-500"
                     style={{
-                      width: `${u.status === "processing" ? 100 : u.progress}%`,
+                      width: u.status === "processing" ? "80%" : "35%",
                       background: "linear-gradient(90deg,#e50914,#ff2a2a)",
                     }}
                   />
                 </div>
               )}
-              {u.error && <p className="text-xs text-error mt-2">{u.error}</p>}
             </div>
           ))}
         </div>
       )}
-    </div>
-  );
-}
 
-function DocumentRow({ 
-  doc, 
-  job, 
-  onRetry, 
-  onPublish, 
-  onArchive, 
-  onRefresh 
-}: { 
-  doc: DocumentListItem; 
-  job?: ProcessingJobResponse;
-  onRetry: () => void;
-  onPublish: () => void;
-  onArchive: () => void;
-  onRefresh: () => void;
-}) {
-  const isProcessing = ["processing", "pending", "running"].includes(doc.status);
-  const isFailed = doc.status === "failed";
-  const isPublished = doc.status === "published";
-  const isReady = doc.status === "ready";
-
-  return (
-    <div className="card p-4 fade-up">
-      <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{EXT_ICON[ext(doc.original_filename)] ?? "FILE"}</span>
-          <div>
-            <p className="font-medium truncate max-w-[300px]">{doc.document_name}</p>
-            <p className="text-xs text-faint">
-              {doc.source_type}  *  {doc.file_size} bytes  *  {doc.total_chunks} chunks
-            </p>
-          </div>
-        </div>
-
-        <div className="flex-1 flex items-center justify-center gap-2">
-          {getStatusBadge(doc.status)}
-          {job && isProcessing && (
-            <span className="badge badge-warning text-xs">
-              Job: {job.status} ({job.chunks_created} chunks)
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {isFailed && (
-            <button 
-              onClick={onRetry}
-              className="btn btn-sm btn-outline"
-              title="Retry processing"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg> Retry
-            </button>
-          )}
-          {isReady && !isPublished && (
-            <button 
-              onClick={onPublish}
-              className="btn btn-sm btn-primary"
-              title="Publish document"
-            >
-              Publish
-            </button>
-          )}
-          {isPublished && (
-            <button 
-              onClick={onArchive}
-              className="btn btn-sm btn-outline"
-              title="Archive document"
-            >
-              Archive
-            </button>
-          )}
-          <button 
-            onClick={onRefresh}
-            className="btn btn-sm btn-ghost"
-            title="Refresh"
+      {/* Existing documents for this subject */}
+      {docs.length > 0 && (
+        <div className="mt-4">
+          <button
+            onClick={() => setShowDocs((v) => !v)}
+            className="btn-ghost text-xs"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
+            {showDocs ? "▾" : "▸"} {docs.length} document{docs.length === 1 ? "" : "s"}
           </button>
-        </div>
-      </div>
-
-      {job && isProcessing && (
-        <div className="mt-3 h-2 rounded-full bg-panel-2 overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{
-              width: "100%",
-              background: "linear-gradient(90deg,#e50914,#ff2a2a)",
-            }}
-          />
-        </div>
-      )}
-
-      {job?.error_message && (
-        <div className="mt-3 p-3 bg-error/10 border border-error/20 rounded text-sm text-error">
-          Error: {job.error_message}
-          {job.retry_count > 0 && <span className="ml-2">(Retry {job.retry_count}/{3})</span>}
+          {showDocs && (
+            <div className="mt-2 space-y-2">
+              {docs.map((d) => {
+                const badge = STATUS_BADGE[d.status] ?? STATUS_BADGE.uploaded;
+                return (
+                  <div key={d.id} className="card p-3 flex items-center gap-3">
+                    <span className="text-lg">
+                      {EXT_ICON[ext(d.original_filename)] ?? "📎"}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium truncate">
+                        {d.document_name}
+                      </p>
+                      <p className="text-[11px] text-faint">
+                        {(d.file_size / 1024 / 1024).toFixed(1)} MB ·{" "}
+                        {d.total_chunks} chunks
+                      </p>
+                    </div>
+                    <span className={`badge ${badge.cls}`}>{badge.label}</span>
+                    {d.status === "ready" && (
+                      <button
+                        onClick={() => publish(d.id)}
+                        className="btn-ghost text-xs"
+                        title="Make available to students"
+                      >
+                        Publish
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

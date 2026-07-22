@@ -3,13 +3,50 @@
 import { useState, useRef, useEffect } from "react";
 import {
   MARKS_OPTIONS,
-  ACTIVE_SEMESTERS,
+  SEMESTER_OPTIONS,
+  SUBJECTS,
   routeQuestion,
   generateMockAnswer,
   simplifyAnswer,
   type StudyAnswer,
   type RouteResult,
+  type Subject,
 } from "@/lib/mockData";
+import { readDemoSubjects } from "@/lib/demoAcademic";
+import { askQuestion, fetchApi, hasRealSession, isUuid, type ApiAnswerResponse } from "@/lib/api";
+
+interface RealSubject {
+  id: string;
+  name: string;
+  code: string;
+}
+
+function apiAnswerToStudyAnswer(
+  api: ApiAnswerResponse,
+  subjectName: string,
+  moduleName: string,
+): StudyAnswer {
+  return {
+    question: api.question,
+    marks: api.marks,
+    subject: subjectName,
+    module: moduleName,
+    body: api.answer ?? "No answer was generated.",
+    wordCount: api.word_count ?? 0,
+    processingMs: api.processing_ms ?? 0,
+    sources: api.sources.map((s) => ({
+      tag: s.label,
+      document: s.document_name,
+      location:
+        s.page_number != null
+          ? `Page ${s.page_number}`
+          : s.slide_number != null
+            ? `Slide ${s.slide_number}`
+            : (s.sheet_name ?? "—"),
+      preview: s.preview ?? "",
+    })),
+  };
+}
 
 function renderBody(body: string) {
   // Minimal markdown-ish rendering for **bold**, bullets, and paragraphs.
@@ -57,8 +94,11 @@ const semLabel = (sem: string) => `Semester ${sem.replace("S", "")}`;
 export default function ChatPage() {
   const [marks, setMarks] = useState(5);
   const [semester, setSemester] = useState(
-    ACTIVE_SEMESTERS.includes("S5") ? "S5" : ACTIVE_SEMESTERS[0],
+    "S5",
   );
+  const [catalog, setCatalog] = useState<Subject[]>(SUBJECTS);
+  const [subjectId, setSubjectId] = useState("");
+  const [moduleId, setModuleId] = useState("");
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [answer, setAnswer] = useState<StudyAnswer | null>(null);
@@ -67,19 +107,94 @@ export default function ChatPage() {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Real backend subjects the student can access (empty in demo mode).
+  const [realSubjects, setRealSubjects] = useState<RealSubject[]>([]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const items = readDemoSubjects();
+      setCatalog(items);
+      const params = new URLSearchParams(window.location.search);
+      const requestedSubject = params.get("subject") ?? "";
+      const requestedModule = params.get("module") ?? "";
+      const selected = items.find((item) => item.id === requestedSubject);
+      if (selected) {
+        setSemester(selected.semester);
+        setSubjectId(selected.id);
+        if (selected.modules.some((module) => module.id === requestedModule)) {
+          setModuleId(requestedModule);
+        }
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!hasRealSession()) return;
+    fetchApi("/api/v1/student/subjects")
+      .then((subs: RealSubject[]) => setRealSubjects(subs))
+      .catch(() => setRealSubjects([]));
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [answer, loading]);
 
+  /** Find the real UUID subject matching a mock-routed subject (by code, then name). */
+  const matchRealSubject = (code: string, name: string): RealSubject | undefined =>
+    realSubjects.find((s) => s.code.toLowerCase() === code.toLowerCase()) ??
+    realSubjects.find((s) => s.name.toLowerCase() === name.toLowerCase());
+
   const run = async (q: string, m: number) => {
     // Route the question to a subject within the chosen semester (mock "AI").
-    const route = routeQuestion(q, semester);
+    const selectedSubject = catalog.find((subject) => subject.id === subjectId);
+    const selectedModule = selectedSubject?.modules.find((module) => module.id === moduleId);
+    const automaticRoute = routeQuestion(q, semester, catalog);
+    const route: RouteResult | null = selectedSubject
+      ? {
+          subject: selectedSubject,
+          module: selectedModule ?? selectedSubject.modules[0] ?? {
+            id: `${selectedSubject.id}-general`,
+            name: "General",
+            materials: 0,
+          },
+          confidence: "high",
+        }
+      : automaticRoute;
     setDetected(route);
     setLoading(true);
     setShowSources(false);
     setCopied(false);
     setSaved(false);
+
+    // When logged into the real backend, resolve the routed subject to a real
+    // UUID (mock ids like "dbms" are matched to API subjects by code/name) and
+    // ask the Ollama-backed RAG pipeline; otherwise fall back to the local mock.
+    if (hasRealSession()) {
+      const real = route
+        ? isUuid(route.subject.id)
+          ? { id: route.subject.id, name: route.subject.name, code: route.subject.code }
+          : matchRealSubject(route.subject.code, route.subject.name)
+        : realSubjects[0]; // no mock route — let retrieval decide relevance
+      if (real) {
+        try {
+          const api = await askQuestion({
+            subject_id: real.id,
+            module_id: route && isUuid(route.module.id) ? route.module.id : null,
+            marks: m,
+            question: q,
+          });
+          setAnswer(
+            apiAnswerToStudyAnswer(api, real.name, route?.module.name ?? "General"),
+          );
+          setLoading(false);
+          return;
+        } catch {
+          // Backend unreachable or errored — fall through to mock below.
+        }
+      }
+    }
+
     const result = route
       ? generateMockAnswer(q, m, route.subject.name, route.module.name)
       : generateMockAnswer(q, m, "General", "General");
@@ -264,11 +379,15 @@ export default function ChatPage() {
               <div className="relative">
                 <select
                   value={semester}
-                  onChange={(e) => setSemester(e.target.value)}
+                  onChange={(e) => {
+                    setSemester(e.target.value);
+                    setSubjectId("");
+                    setModuleId("");
+                  }}
                   className="chip appearance-none pr-7 cursor-pointer"
                   aria-label="Semester"
                 >
-                  {ACTIVE_SEMESTERS.map((s) => (
+                  {SEMESTER_OPTIONS.map((s) => (
                     <option key={s} value={s}>
                       {semLabel(s)}
                     </option>
@@ -276,6 +395,37 @@ export default function ChatPage() {
                 </select>
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-faint text-[10px]">▾</span>
               </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-faint mr-1">Subject</span>
+              <select
+                value={subjectId}
+                onChange={(e) => { setSubjectId(e.target.value); setModuleId(""); }}
+                className="chip appearance-none cursor-pointer max-w-[190px]"
+                aria-label="Subject"
+              >
+                <option value="">Auto-detect</option>
+                {catalog.filter((subject) => subject.semester === semester).map((subject) => (
+                  <option key={subject.id} value={subject.id}>{subject.code} — {subject.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-faint mr-1">Module</span>
+              <select
+                value={moduleId}
+                onChange={(e) => setModuleId(e.target.value)}
+                disabled={!subjectId}
+                className="chip appearance-none cursor-pointer max-w-[180px] disabled:opacity-50"
+                aria-label="Module"
+              >
+                <option value="">Any module</option>
+                {(catalog.find((subject) => subject.id === subjectId)?.modules ?? []).map((module) => (
+                  <option key={module.id} value={module.id}>{module.name}</option>
+                ))}
+              </select>
             </div>
 
             {/* Marks */}

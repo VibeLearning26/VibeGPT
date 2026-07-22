@@ -7,11 +7,13 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # Login must accept the seeded development accounts under *.local.
+    # User creation still uses EmailStr for normal production accounts.
+    email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=1, max_length=128)
 
 

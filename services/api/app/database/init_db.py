@@ -13,10 +13,104 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import hash_password
+from app.models.academic import Department, Semester
 from app.models.answer_rule import AnswerRule
 from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_DEPARTMENTS = [
+    ("CSE", "Computer Science and Engineering"),
+    ("AIML", "Artificial Intelligence and Machine Learning"),
+    ("ECE", "Electronics and Communication Engineering"),
+    ("EEE", "Electrical and Electronics Engineering"),
+    ("ME", "Mechanical Engineering"),
+    ("CE", "Civil Engineering"),
+    ("IT", "Information Technology"),
+    ("AE", "Automobile Engineering"),
+    ("SH", "Science and Humanities"),
+]
+
+
+async def create_academic_catalog(db: AsyncSession) -> None:
+    """Ensure the department and semester selectors have their base catalog."""
+    existing_departments = set(
+        (await db.execute(select(Department.code))).scalars().all()
+    )
+    for code, name in DEFAULT_DEPARTMENTS:
+        if code not in existing_departments:
+            db.add(Department(code=code, name=name, is_active=True))
+
+    existing_semesters = set(
+        (await db.execute(select(Semester.number))).scalars().all()
+    )
+    for number in range(1, 9):
+        if number not in existing_semesters:
+            db.add(Semester(number=number, name=f"Semester {number}", is_active=True))
+
+    await db.flush()
+
+
+DEFAULT_DEPARTMENTS = (
+    ("CSE", "Computer Science and Engineering"),
+    ("ECE", "Electronics and Communication Engineering"),
+    ("EEE", "Electrical and Electronics Engineering"),
+    ("ME", "Mechanical Engineering"),
+    ("CE", "Civil Engineering"),
+    ("AIDS", "Artificial Intelligence and Data Science"),
+    ("CC", "Computer Science Engineering and Cyber Security"),
+    ("CEBS", "Computer Engineering and Business Systems"),
+    ("CSD", "Computer Science and Design"),
+)
+
+
+async def create_default_departments(db: AsyncSession) -> None:
+    """Ensure the supported campus departments exist without creating duplicates."""
+    result = await db.execute(select(Department))
+    existing = {department.code.upper(): department for department in result.scalars().all()}
+    created: list[str] = []
+
+    for code, name in DEFAULT_DEPARTMENTS:
+        department = existing.get(code)
+        if department is not None:
+            department.name = name
+            department.is_active = True
+            department.archived_at = None
+            continue
+
+        db.add(Department(name=name, code=code, is_active=True))
+        created.append(code)
+
+    await db.flush()
+    if created:
+        logger.info("Created default departments: %s", ", ".join(created))
+    else:
+        logger.info("Default departments already exist")
+
+
+async def create_default_semesters(db: AsyncSession) -> None:
+    """Ensure the standard S1 through S8 semesters exist and are selectable."""
+    result = await db.execute(select(Semester))
+    existing = {semester.number: semester for semester in result.scalars().all()}
+    created: list[str] = []
+
+    for number in range(1, 9):
+        semester = existing.get(number)
+        if semester is not None:
+            # A previously archived standard semester must remain selectable.
+            semester.is_active = True
+            semester.archived_at = None
+            continue
+
+        name = f"S{number}"
+        db.add(Semester(number=number, name=name, is_active=True))
+        created.append(name)
+
+    await db.flush()
+    if created:
+        logger.info("Created default semesters: %s", ", ".join(created))
+    else:
+        logger.info("Default semesters S1-S8 already exist")
 
 
 async def create_initial_admin(db: AsyncSession) -> None:
@@ -43,11 +137,9 @@ async def create_initial_admin(db: AsyncSession) -> None:
 
 
 async def create_default_answer_rules(db: AsyncSession) -> None:
-    """Create default 2, 5, and 10-mark answer rules if none exist."""
+    """Create any missing default answer rules for supported mark values."""
     result = await db.execute(select(AnswerRule).where(AnswerRule.is_default))
-    if result.scalars().first() is not None:
-        logger.info("Default answer rules already exist, skipping")
-        return
+    existing_marks = {rule.marks for rule in result.scalars().all()}
 
     defaults = [
         AnswerRule(
@@ -59,6 +151,24 @@ async def create_default_answer_rules(db: AsyncSession) -> None:
             required_sections=["definition"],
             num_points=2,
             use_bullet_points=False,
+            use_paragraphs=True,
+            require_formula=False,
+            require_example=False,
+            require_conclusion=False,
+            require_citations=True,
+            preferred_style="concise",
+            is_default=True,
+            is_active=True,
+        ),
+        AnswerRule(
+            marks=3,
+            name="3-Mark Short Answer",
+            description="Brief definition with three focused explanatory points",
+            min_words=60,
+            max_words=100,
+            required_sections=["definition", "key_points"],
+            num_points=3,
+            use_bullet_points=True,
             use_paragraphs=True,
             require_formula=False,
             require_example=False,
@@ -87,6 +197,24 @@ async def create_default_answer_rules(db: AsyncSession) -> None:
             is_active=True,
         ),
         AnswerRule(
+            marks=8,
+            name="8-Mark Extended Answer",
+            description="Detailed explanation with key points, example, and conclusion",
+            min_words=200,
+            max_words=280,
+            required_sections=["introduction", "explanation", "key_points", "conclusion"],
+            num_points=5,
+            use_bullet_points=True,
+            use_paragraphs=True,
+            require_formula=False,
+            require_example=True,
+            require_conclusion=True,
+            require_citations=True,
+            preferred_style="detailed_academic",
+            is_default=True,
+            is_active=True,
+        ),
+        AnswerRule(
             marks=10,
             name="10-Mark Detailed Answer",
             description="Comprehensive answer with intro, explanation, points, example, conclusion",
@@ -107,10 +235,11 @@ async def create_default_answer_rules(db: AsyncSession) -> None:
     ]
 
     for rule in defaults:
-        db.add(rule)
+        if rule.marks not in existing_marks:
+            db.add(rule)
 
     await db.flush()
-    logger.info("Created default answer rules for 2, 5, and 10 marks")
+    logger.info("Ensured default answer rules for 2, 3, 5, 8, and 10 marks")
 
 
 async def create_demo_data(db: AsyncSession) -> None:
@@ -139,6 +268,7 @@ async def create_demo_data(db: AsyncSession) -> None:
 
 async def init_db(db: AsyncSession) -> None:
     """Run all initialization tasks."""
+    await create_academic_catalog(db)
     await create_initial_admin(db)
     await create_default_answer_rules(db)
     await create_demo_data(db)

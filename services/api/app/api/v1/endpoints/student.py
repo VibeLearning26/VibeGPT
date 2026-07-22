@@ -18,13 +18,14 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Query
-from sqlalchemy import and_, select
+from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import DbSession, StudentUser
-from app.core.exceptions import AuthorizationError, NotFoundError
+from app.core.exceptions import NotFoundError, AuthorizationError
 from app.models.academic import Module, StudentSubjectPermission, Subject
-from app.models.question import Feedback, QuestionLog, SavedAnswer
+from app.models.question import Feedback, QuestionLog, QuestionSource, SavedAnswer
+from app.rag.generation import AnswerGenerationService
 from app.schemas.academic import ModuleResponse, SubjectResponse
 from app.schemas.auth import UserProfile
 from app.schemas.common import MessageResponse
@@ -49,9 +50,9 @@ async def get_student_subjects(current_user: StudentUser, db: DbSession):
         .where(
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
-                StudentSubjectPermission.is_active,
-                Subject.is_active,
-                Subject.archived_at is None,
+                StudentSubjectPermission.is_active.is_(True),
+                Subject.is_active.is_(True),
+                Subject.archived_at.is_(None),
             )
         )
     )
@@ -68,7 +69,7 @@ async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: D
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
                 StudentSubjectPermission.subject_id == subject_id,
-                StudentSubjectPermission.is_active,
+                StudentSubjectPermission.is_active.is_(True),
             )
         )
     )
@@ -77,7 +78,13 @@ async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: D
 
     result = await db.execute(
         select(Module)
-        .where(and_(Module.subject_id == subject_id, Module.is_active, Module.archived_at is None))
+        .where(
+            and_(
+                Module.subject_id == subject_id,
+                Module.is_active.is_(True),
+                Module.archived_at.is_(None),
+            )
+        )
         .order_by(Module.number)
     )
     modules = result.scalars().all()
@@ -87,35 +94,93 @@ async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: D
 @router.post("/answers", response_model=AnswerResponse)
 async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: DbSession):
     """
-    Submit a question and receive a grounded, exam-ready RAG answer.
-
-    Orchestrates the full V2 RAG pipeline via AnswerService:
-    retrieval → prompt construction → Ollama generation → validation → persistence.
+    Submit a question and receive an exam-ready answer.
+    This is the core RAG endpoint — skeleton for Phase 1.
     """
-    from app.rag.answer_service import AnswerService
-
     # Verify subject access
     perm = await db.execute(
         select(StudentSubjectPermission).where(
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
                 StudentSubjectPermission.subject_id == body.subject_id,
-                StudentSubjectPermission.is_active,
+                StudentSubjectPermission.is_active.is_(True),
             )
         )
     )
     if perm.scalar_one_or_none() is None:
         raise AuthorizationError("You do not have access to this subject")
 
+    # Full RAG pipeline: retrieve → prompt → Ollama → validate
+    service = AnswerGenerationService(db)
+    result = await service.generate(
+        question=body.question,
+        subject_id=body.subject_id,
+        marks=body.marks,
+        module_id=body.module_id,
+    )
 
-    service = AnswerService()
-    return await service.generate_answer(
-        db=db,
+    question_log = QuestionLog(
         user_id=current_user.id,
         subject_id=body.subject_id,
         module_id=body.module_id,
         marks=body.marks,
         question=body.question,
+        answer=result.answer,
+        answer_status=result.status,
+        word_count=result.word_count,
+        model_name=result.model_name,
+        prompt_version=result.prompt_version,
+        retrieved_chunk_ids=[c.chunk_id for c in result.sources] or None,
+        processing_time_ms=result.processing_ms,
+        validation_result=result.validation or None,
+    )
+    db.add(question_log)
+    await db.flush()
+
+    for citation in result.sources:
+        db.add(
+            QuestionSource(
+                question_log_id=question_log.id,
+                chunk_id=citation.chunk_id,
+                document_id=citation.document_id,
+                label=citation.label,
+                relevance_score=citation.relevance_score,
+                page_number=citation.page_number,
+                slide_number=citation.slide_number,
+                preview=citation.preview,
+            )
+        )
+    await db.flush()
+    await db.refresh(question_log)
+
+    return AnswerResponse(
+        id=question_log.id,
+        status=question_log.answer_status.value,
+        answer=question_log.answer,
+        word_count=question_log.word_count,
+        marks=question_log.marks,
+        question=question_log.question,
+        sources=[
+            SourceInfo(
+                label=c.label,
+                document_id=c.document_id,
+                document_name=c.document_name,
+                page_number=c.page_number,
+                slide_number=c.slide_number,
+                sheet_name=c.sheet_name,
+                preview=c.preview,
+                relevance_score=c.relevance_score,
+            )
+            for c in result.sources
+        ],
+        model=question_log.model_name,
+        processing_ms=question_log.processing_time_ms,
+        validation=ValidationResult(
+            word_count_valid=result.validation.get("word_count_valid", True),
+            citations_valid=result.validation.get("citations_valid", True),
+            details=result.validation or None,
+        ),
+        created_at=question_log.created_at,
     )
 
 
@@ -178,7 +243,7 @@ async def get_history_detail(question_id: UUID, current_user: StudentUser, db: D
         SourceInfo(
             label=s.label,
             document_id=s.document_id,
-            document_name=f"Document [{s.label}]",  # Label-based fallback; full name stored in answer_service
+            document_name="",  # Will be resolved in Phase 5
             page_number=s.page_number,
             slide_number=s.slide_number,
             preview=s.preview,
@@ -197,9 +262,7 @@ async def get_history_detail(question_id: UUID, current_user: StudentUser, db: D
         sources=sources,
         model=log.model_name,
         processing_ms=log.processing_time_ms,
-        validation=ValidationResult(**(log.validation_result or {}))
-        if log.validation_result
-        else None,
+        validation=ValidationResult(**(log.validation_result or {})) if log.validation_result else None,
         created_at=log.created_at,
     )
 
@@ -261,10 +324,7 @@ async def submit_feedback(body: FeedbackRequest, current_user: StudentUser, db: 
     # Check for existing feedback
     existing = await db.execute(
         select(Feedback).where(
-            and_(
-                Feedback.question_log_id == body.question_log_id,
-                Feedback.user_id == current_user.id,
-            )
+            and_(Feedback.question_log_id == body.question_log_id, Feedback.user_id == current_user.id)
         )
     )
     if existing.scalar_one_or_none() is not None:
@@ -287,13 +347,7 @@ async def get_saved_answers(current_user: StudentUser, db: DbSession):
     """Get all saved/bookmarked answers."""
     result = await db.execute(
         select(QuestionLog)
-        .join(
-            SavedAnswer,
-            and_(
-                SavedAnswer.question_log_id == QuestionLog.id,
-                SavedAnswer.user_id == current_user.id,
-            ),
-        )
+        .join(SavedAnswer, and_(SavedAnswer.question_log_id == QuestionLog.id, SavedAnswer.user_id == current_user.id))
         .order_by(SavedAnswer.created_at.desc())
         .options(selectinload(QuestionLog.subject), selectinload(QuestionLog.module))
     )
