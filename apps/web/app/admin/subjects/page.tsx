@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  adminApi,
-  type ApiDepartment,
-  type ApiModule,
-  type ApiSemester,
-  type ApiSubject,
-} from "@/lib/api";
+import { DEPARTMENTS, SEMESTER_OPTIONS, SUBJECTS, type Subject } from "@/lib/mockData";
+import { readDemoSubjects, writeDemoSubjects } from "@/lib/demoAcademic";
+
+const semLabel = (sem: string) => `Semester ${sem.replace("S", "")}`;
+
+// Derive simple routing keywords from a subject name (lowercased words > 3 chars).
+const keywordsFromName = (name: string) =>
+  name
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((w) => w.length > 3);
 
 export default function AdminSubjectsPage() {
   const [subjects, setSubjects] = useState<ApiSubject[]>([]);
@@ -18,47 +22,48 @@ export default function AdminSubjectsPage() {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
   const [newCode, setNewCode] = useState("");
-  const [newSemesterId, setNewSemesterId] = useState("");
-  const [newDepartmentId, setNewDepartmentId] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [modules, setModules] = useState<ApiModule[]>([]);
+  const [newIcon, setNewIcon] = useState("📖");
+  const [newSemester, setNewSemester] = useState(SEMESTER_OPTIONS[0]);
+  const [newDepartment, setNewDepartment] = useState<string>(DEPARTMENTS[0].code);
+  const [savedTick, setSavedTick] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-        adminApi.listSubjects(),
-        adminApi.listSemesters(),
-        adminApi.listDepartments(),
-      ])
-      .then(([loadedSubjects, loadedSemesters, loadedDepartments]) => {
-        setSubjects(loadedSubjects);
-        setSemesters(loadedSemesters);
-        setDepartments(loadedDepartments);
-        setNewSemesterId(loadedSemesters[0]?.id || "");
-        setNewDepartmentId(loadedDepartments[0]?.id || "");
-      })
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Unable to load subjects");
-      })
-      .finally(() => setLoading(false));
+    const timer = window.setTimeout(() => setSubjects(readDemoSubjects()), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
-  const addSubject = async () => {
-    if (!newName.trim() || !newCode.trim() || !newSemesterId || !newDepartmentId) return;
-    try {
-      setError("");
-      const created = await adminApi.createSubject({
+  const save = () => {
+    writeDemoSubjects(subjects);
+    setSavedTick(true);
+    setTimeout(() => setSavedTick(false), 1800);
+  };
+
+  const addSubject = () => {
+    if (!newName.trim() || !newCode.trim()) return;
+    const id = `sub-${Date.now()}`;
+    setSubjects((prev) => {
+      const next = [...prev, {
+        id,
         name: newName.trim(),
         code: newCode.trim().toUpperCase(),
-        semester_id: newSemesterId,
-        department_id: newDepartmentId,
-      });
-      setSubjects((current) => [...current, created]);
-      setNewName("");
-      setNewCode("");
-      setShowNew(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create subject");
-    }
+        icon: newIcon,
+        semester: newSemester,
+        department: newDepartment,
+        keywords: keywordsFromName(newName),
+        materials: 0,
+        modules: [{ id: `${id}-1`, name: "Module 1", materials: 0 }],
+      }];
+      writeDemoSubjects(next);
+      return next;
+    });
+    setNewName("");
+    setNewCode("");
+    setNewIcon("📖");
+    setNewSemester(SEMESTER_OPTIONS[0]);
+    setNewDepartment(DEPARTMENTS[0].code);
+    setShowNew(false);
+    setSavedTick(true);
+    setTimeout(() => setSavedTick(false), 1800);
   };
 
   const archiveSubject = async (subject: ApiSubject) => {
@@ -98,19 +103,13 @@ export default function AdminSubjectsPage() {
     }
   };
 
-  const saveModules = async () => {
-    try {
-      await Promise.all(modules.map((module) => adminApi.updateModule(module.id, { name: module.name })));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to save modules");
-    }
+  const updateSubject = (subjectId: string, field: "department" | "semester", value: string) => {
+    setSubjects((prev) =>
+      prev.map((subject) =>
+        subject.id === subjectId ? { ...subject, [field]: value } : subject,
+      ),
+    );
   };
-
-  if (loading) return <div className="p-8 text-sm text-muted">Loading subjects...</div>;
-
-  const canCreate = Boolean(
-    newName.trim() && newCode.trim() && newSemesterId && newDepartmentId,
-  );
 
   return (
     <div className="max-w-5xl mx-auto px-5 sm:px-8 py-8">
@@ -129,7 +128,7 @@ export default function AdminSubjectsPage() {
           <p className="text-[11px] font-semibold uppercase tracking-wider text-faint mb-4">
             Create new subject
           </p>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
             <div>
               <label className="field-label" htmlFor="subject-name">Name</label>
               <input id="subject-name" className="input" placeholder="Data Structures" value={newName} onChange={(event) => setNewName(event.target.value)} />
@@ -139,10 +138,31 @@ export default function AdminSubjectsPage() {
               <input id="subject-code" className="input uppercase" placeholder="PCCST303" value={newCode} onChange={(event) => setNewCode(event.target.value)} />
             </div>
             <div>
-              <label className="field-label" htmlFor="subject-department">Department</label>
-              <select id="subject-department" className="input cursor-pointer" value={newDepartmentId} onChange={(event) => setNewDepartmentId(event.target.value)}>
-                <option value="">Select department</option>
-                {departments.map((department) => <option key={department.id} value={department.id}>{department.code} - {department.name}</option>)}
+              <label className="field-label">Department</label>
+              <select
+                className="input cursor-pointer"
+                value={newDepartment}
+                onChange={(e) => setNewDepartment(e.target.value)}
+              >
+                {DEPARTMENTS.map((department) => (
+                  <option key={department.code} value={department.code}>
+                    {department.code} — {department.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="field-label">Semester</label>
+              <select
+                className="input cursor-pointer"
+                value={newSemester}
+                onChange={(e) => setNewSemester(e.target.value)}
+              >
+                {SEMESTER_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {semLabel(s)}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -165,34 +185,77 @@ export default function AdminSubjectsPage() {
       {error && <p className="panel p-3 text-err text-sm mb-4" role="alert">{error}</p>}
 
       <div className="space-y-4">
-        {subjects.map((subject) => {
-          const semester = semesters.find((item) => item.id === subject.semester_id);
-          const department = departments.find((item) => item.id === subject.department_id);
-          return (
-            <article key={subject.id} className="card card-hover p-5 fade-up">
-              <div className="flex items-start gap-3">
-                <div className="w-11 h-11 rounded-xl bg-panel-2 border border-line flex items-center justify-center font-bold text-brand-accent">{department?.code.slice(0, 2) || "S"}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-semibold">{subject.name}</h2>
-                    <span className="badge badge-neutral">{subject.code}</span>
-                    {department && <span className="badge badge-red">{department.code}</span>}
-                    {semester && <span className="badge badge-neutral">{semester.name}</span>}
-                  </div>
+        {subjects.map((s) => (
+          <div key={s.id} className="card card-hover p-5 fade-up">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-11 h-11 rounded-xl bg-panel-2 border border-line flex items-center justify-center text-xl">
+                {s.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-semibold truncate">{s.name}</h2>
+                  <span className="badge badge-neutral">{s.code}</span>
+                  <span className="badge badge-neutral">{s.department}</span>
+                  <span className="badge badge-red">{semLabel(s.semester)}</span>
                 </div>
                 <button onClick={() => toggleModules(subject.id)} className="btn-ghost">{editingId === subject.id ? "Close" : "Modules"}</button>
                 <button onClick={() => archiveSubject(subject)} className="btn-ghost text-err hover:bg-err/10">Archive</button>
               </div>
 
-              {editingId === subject.id && (
-                <div className="mt-4 pt-4 border-t border-line-soft space-y-2 fade-in">
-                  {modules.length === 0 && <p className="text-xs text-muted">No modules yet.</p>}
-                  {modules.map((module) => (
-                    <input key={module.id} className="input" value={module.name} onChange={(event) => setModules((current) => current.map((item) => item.id === module.id ? { ...item, name: event.target.value } : item))} />
-                  ))}
-                  <div className="flex gap-2 pt-2">
-                    <button onClick={() => addModule(subject.id)} className="btn-ghost">+ Add module</button>
-                    {modules.length > 0 && <button onClick={saveModules} className="btn-primary ml-auto">Save modules</button>}
+            {/* Modules list / editor */}
+            {editingId === s.id && (
+              <div className="space-y-2 fade-in">
+                <div className="grid sm:grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <label className="field-label">Department</label>
+                    <select
+                      className="input cursor-pointer"
+                      value={s.department}
+                      onChange={(e) => updateSubject(s.id, "department", e.target.value)}
+                    >
+                      {DEPARTMENTS.map((department) => (
+                        <option key={department.code} value={department.code}>
+                          {department.code} — {department.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="field-label">Semester</label>
+                    <select
+                      className="input cursor-pointer"
+                      value={s.semester}
+                      onChange={(e) => updateSubject(s.id, "semester", e.target.value)}
+                    >
+                      {SEMESTER_OPTIONS.map((semester) => (
+                        <option key={semester} value={semester}>{semLabel(semester)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-faint mb-2">
+                  Modules
+                </p>
+                {s.modules.map((m) => (
+                  <div
+                    key={m.id}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-panel-2 border border-line-soft"
+                  >
+                    <input
+                      className="flex-1 bg-transparent text-[13px] text-muted outline-none"
+                      value={m.name}
+                      onChange={(e) => updateModule(s.id, m.id, e.target.value)}
+                    />
+                    <span className="text-[11px] text-faint whitespace-nowrap">
+                      {m.materials} files
+                    </span>
+                    <button
+                      onClick={() => removeModule(s.id, m.id)}
+                      className="text-[11px] text-faint hover:text-err transition"
+                      title="Remove module"
+                    >
+                      ✕
+                    </button>
                   </div>
                 </div>
               )}

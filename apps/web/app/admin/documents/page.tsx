@@ -10,6 +10,9 @@ import {
   type ApiSubject,
   type SourceTypeValue,
 } from "@/lib/api";
+import { isDemoMode } from "@/lib/auth";
+import { readDemoSubjects } from "@/lib/demoAcademic";
+import { SEMESTER_OPTIONS } from "@/lib/mockData";
 
 interface Upload {
   id: string;
@@ -63,6 +66,29 @@ export default function DocumentsPage() {
 
   const fetchData = useCallback(async () => {
     try {
+      if (isDemoMode) {
+        const demoSemesters: ApiSemester[] = SEMESTER_OPTIONS.map((semester, index) => ({
+          id: semester,
+          number: index + 1,
+          name: `Semester ${index + 1}`,
+          is_active: true,
+        }));
+        const demoSubjects: ApiSubject[] = readDemoSubjects().map((subject) => ({
+          id: subject.id,
+          name: subject.name,
+          code: subject.code,
+          description: null,
+          department_id: subject.department,
+          semester_id: subject.semester,
+          credits: null,
+          is_active: true,
+        }));
+        setSemesters(demoSemesters);
+        setSubjects(demoSubjects);
+        setSemesterId((prev) => prev || "S1");
+        setError(null);
+        return;
+      }
       const [sems, subs] = await Promise.all([
         adminApi.listSemesters(),
         adminApi.listSubjects(),
@@ -161,7 +187,7 @@ export default function DocumentsPage() {
           {/* Subjects in this semester — one upload card each */}
           <div className="space-y-4">
             {visibleSubjects.map((subject) => (
-              <SubjectUploadCard key={subject.id} subject={subject} />
+              <SubjectUploadCard key={subject.id} subject={subject} demo={isDemoMode} />
             ))}
             {visibleSubjects.length === 0 && (
               <div className="panel p-8 text-center text-sm text-muted">
@@ -176,7 +202,7 @@ export default function DocumentsPage() {
   );
 }
 
-function SubjectUploadCard({ subject }: { subject: ApiSubject }) {
+function SubjectUploadCard({ subject, demo }: { subject: ApiSubject; demo: boolean }) {
   const [modules, setModules] = useState<ApiModule[]>([]);
   const [moduleId, setModuleId] = useState<string>("");
   const [category, setCategory] = useState<SourceTypeValue | "auto">("auto");
@@ -188,6 +214,18 @@ function SubjectUploadCard({ subject }: { subject: ApiSubject }) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    if (demo) {
+      const local = readDemoSubjects().find((item) => item.id === subject.id);
+      setModules((local?.modules ?? []).map((module, index) => ({
+        id: module.id,
+        name: module.name,
+        number: index + 1,
+        description: null,
+        subject_id: subject.id,
+        is_active: true,
+      })));
+      return;
+    }
     let cancelled = false;
     adminApi.listModules(subject.id).then((items) => {
       if (cancelled) return;
@@ -197,7 +235,7 @@ function SubjectUploadCard({ subject }: { subject: ApiSubject }) {
     return () => {
       cancelled = true;
     };
-  }, [subject.id]);
+  }, [demo, subject.id]);
 
   useEffect(() => {
     return () => {
@@ -206,6 +244,7 @@ function SubjectUploadCard({ subject }: { subject: ApiSubject }) {
   }, []);
 
   const refreshDocs = useCallback(async () => {
+    if (demo) return [];
     try {
       const list = await adminApi.listDocuments(subject.id);
       setDocs(list);
@@ -213,7 +252,7 @@ function SubjectUploadCard({ subject }: { subject: ApiSubject }) {
     } catch {
       return [];
     }
-  }, [subject.id]);
+  }, [demo, subject.id]);
 
   useEffect(() => {
     refreshDocs();
@@ -261,6 +300,13 @@ function SubjectUploadCard({ subject }: { subject: ApiSubject }) {
       setUploads((prev) => [upload, ...prev]);
 
       try {
+        if (demo) {
+          await new Promise((resolve) => window.setTimeout(resolve, 450));
+          setUploads((prev) => prev.map((item) =>
+            item.id === id ? { ...item, status: "done" } : item,
+          ));
+          continue;
+        }
         const res = await adminApi.uploadDocument({
           file: f,
           subject_id: subject.id,

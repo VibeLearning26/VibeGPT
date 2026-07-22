@@ -3,7 +3,6 @@ VibeGPT - Document Embedding Service
 """
 
 import logging
-from typing import List
 
 from sentence_transformers import SentenceTransformer
 
@@ -28,7 +27,7 @@ class EmbeddingService:
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(EmbeddingService, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
             cls._instance._load_model()
         return cls._instance
 
@@ -42,14 +41,14 @@ class EmbeddingService:
             logger.error(f"Failed to load embedding model: {e}")
             raise EmbeddingError(f"Failed to load model {MODEL_NAME}") from e
 
-    def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str) -> list[float]:
         """
         Embed a single search query.
         Returns L2-normalized vectors (sentence-transformers defaults or we can enforce it).
         """
         if not text or not text.strip():
             raise ValueError("Input text cannot be empty.")
-        
+
         try:
             # We explicitly ask for a numpy array, then convert to python list
             embedding = self._model.encode(text, normalize_embeddings=True)
@@ -58,13 +57,13 @@ class EmbeddingService:
             logger.error(f"Error embedding query: {e}")
             raise EmbeddingError("Failed to generate query embedding.") from e
 
-    def embed_batch(self, texts: List[str]) -> List[List[float]]:
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
         Embed a batch of document chunks.
         """
         if not texts:
             return []
-        
+
         try:
             embeddings = self._model.encode(texts, normalize_embeddings=True)
             return [emb.tolist() for emb in embeddings]

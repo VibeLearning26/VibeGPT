@@ -10,6 +10,7 @@ import enum
 import uuid
 from datetime import datetime
 
+from pgvector.sqlalchemy import Vector  # noqa: F401 — used in mapped_column()
 from sqlalchemy import (
     Boolean,
     DateTime,

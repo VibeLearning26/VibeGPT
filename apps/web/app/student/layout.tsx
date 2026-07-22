@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { logout } from "@/lib/auth";
-import { RECENT_CONVERSATIONS, SUBJECTS } from "@/lib/mockData";
+import { RECENT_CONVERSATIONS, SUBJECTS, type Subject } from "@/lib/mockData";
+import { readDemoSubjects } from "@/lib/demoAcademic";
 
 const navItems = [
   { icon: "📚", label: "Subjects", href: "/student/subjects", id: "subjects" },
@@ -14,8 +15,14 @@ const navItems = [
 
 export default function StudentLayout({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [subjects, setSubjects] = useState<Subject[]>(SUBJECTS);
   const pathname = usePathname();
   const router = useRouter();
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSubjects(readDemoSubjects()), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
@@ -110,7 +117,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
               Subjects
             </p>
             <div className="space-y-0.5">
-              {SUBJECTS.map((s) => (
+              {subjects.map((s) => (
                 <Link
                   key={s.id}
                   href="/student/subjects"

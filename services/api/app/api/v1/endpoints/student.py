@@ -50,9 +50,9 @@ async def get_student_subjects(current_user: StudentUser, db: DbSession):
         .where(
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
-                StudentSubjectPermission.is_active == True,
-                Subject.is_active == True,
-                Subject.archived_at == None,
+                StudentSubjectPermission.is_active.is_(True),
+                Subject.is_active.is_(True),
+                Subject.archived_at.is_(None),
             )
         )
     )
@@ -69,7 +69,7 @@ async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: D
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
                 StudentSubjectPermission.subject_id == subject_id,
-                StudentSubjectPermission.is_active == True,
+                StudentSubjectPermission.is_active.is_(True),
             )
         )
     )
@@ -78,7 +78,13 @@ async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: D
 
     result = await db.execute(
         select(Module)
-        .where(and_(Module.subject_id == subject_id, Module.is_active == True, Module.archived_at == None))
+        .where(
+            and_(
+                Module.subject_id == subject_id,
+                Module.is_active.is_(True),
+                Module.archived_at.is_(None),
+            )
+        )
         .order_by(Module.number)
     )
     modules = result.scalars().all()
@@ -97,7 +103,7 @@ async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: 
             and_(
                 StudentSubjectPermission.user_id == current_user.id,
                 StudentSubjectPermission.subject_id == body.subject_id,
-                StudentSubjectPermission.is_active == True,
+                StudentSubjectPermission.is_active.is_(True),
             )
         )
     )

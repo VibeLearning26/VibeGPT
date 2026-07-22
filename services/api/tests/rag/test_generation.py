@@ -13,9 +13,9 @@ from app.models.document import DocumentChunk
 from app.models.question import AnswerStatus
 from app.rag.generation import (
     AnswerGenerationService,
+    _build_citations,
     build_prompt,
     validate_answer,
-    _build_citations,
 )
 from app.rag.ollama_client import OllamaConnectionError
 

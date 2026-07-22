@@ -517,7 +517,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               children: [
                 const Text('Marks ', style: TextStyle(fontSize: 11, color: AppTheme.faint)),
                 const SizedBox(width: 4),
-                ...([2, 5, 10].map((m) => Padding(
+                ...([2, 3, 5, 8, 10].map((m) => Padding(
                   padding: const EdgeInsets.only(right: 6),
                   child: GestureDetector(
                     onTap: () => setState(() => _selectedMarks = m),

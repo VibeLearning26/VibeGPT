@@ -3,13 +3,16 @@
 import { useState, useRef, useEffect } from "react";
 import {
   MARKS_OPTIONS,
-  ACTIVE_SEMESTERS,
+  SEMESTER_OPTIONS,
+  SUBJECTS,
   routeQuestion,
   generateMockAnswer,
   simplifyAnswer,
   type StudyAnswer,
   type RouteResult,
+  type Subject,
 } from "@/lib/mockData";
+import { readDemoSubjects } from "@/lib/demoAcademic";
 import { askQuestion, fetchApi, hasRealSession, isUuid, type ApiAnswerResponse } from "@/lib/api";
 
 interface RealSubject {
@@ -91,8 +94,11 @@ const semLabel = (sem: string) => `Semester ${sem.replace("S", "")}`;
 export default function ChatPage() {
   const [marks, setMarks] = useState(5);
   const [semester, setSemester] = useState(
-    ACTIVE_SEMESTERS.includes("S5") ? "S5" : ACTIVE_SEMESTERS[0],
+    "S5",
   );
+  const [catalog, setCatalog] = useState<Subject[]>(SUBJECTS);
+  const [subjectId, setSubjectId] = useState("");
+  const [moduleId, setModuleId] = useState("");
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [answer, setAnswer] = useState<StudyAnswer | null>(null);
@@ -103,6 +109,25 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   // Real backend subjects the student can access (empty in demo mode).
   const [realSubjects, setRealSubjects] = useState<RealSubject[]>([]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const items = readDemoSubjects();
+      setCatalog(items);
+      const params = new URLSearchParams(window.location.search);
+      const requestedSubject = params.get("subject") ?? "";
+      const requestedModule = params.get("module") ?? "";
+      const selected = items.find((item) => item.id === requestedSubject);
+      if (selected) {
+        setSemester(selected.semester);
+        setSubjectId(selected.id);
+        if (selected.modules.some((module) => module.id === requestedModule)) {
+          setModuleId(requestedModule);
+        }
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!hasRealSession()) return;
@@ -122,7 +147,20 @@ export default function ChatPage() {
 
   const run = async (q: string, m: number) => {
     // Route the question to a subject within the chosen semester (mock "AI").
-    const route = routeQuestion(q, semester);
+    const selectedSubject = catalog.find((subject) => subject.id === subjectId);
+    const selectedModule = selectedSubject?.modules.find((module) => module.id === moduleId);
+    const automaticRoute = routeQuestion(q, semester, catalog);
+    const route: RouteResult | null = selectedSubject
+      ? {
+          subject: selectedSubject,
+          module: selectedModule ?? selectedSubject.modules[0] ?? {
+            id: `${selectedSubject.id}-general`,
+            name: "General",
+            materials: 0,
+          },
+          confidence: "high",
+        }
+      : automaticRoute;
     setDetected(route);
     setLoading(true);
     setShowSources(false);
@@ -341,11 +379,15 @@ export default function ChatPage() {
               <div className="relative">
                 <select
                   value={semester}
-                  onChange={(e) => setSemester(e.target.value)}
+                  onChange={(e) => {
+                    setSemester(e.target.value);
+                    setSubjectId("");
+                    setModuleId("");
+                  }}
                   className="chip appearance-none pr-7 cursor-pointer"
                   aria-label="Semester"
                 >
-                  {ACTIVE_SEMESTERS.map((s) => (
+                  {SEMESTER_OPTIONS.map((s) => (
                     <option key={s} value={s}>
                       {semLabel(s)}
                     </option>
@@ -353,6 +395,37 @@ export default function ChatPage() {
                 </select>
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-faint text-[10px]">▾</span>
               </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-faint mr-1">Subject</span>
+              <select
+                value={subjectId}
+                onChange={(e) => { setSubjectId(e.target.value); setModuleId(""); }}
+                className="chip appearance-none cursor-pointer max-w-[190px]"
+                aria-label="Subject"
+              >
+                <option value="">Auto-detect</option>
+                {catalog.filter((subject) => subject.semester === semester).map((subject) => (
+                  <option key={subject.id} value={subject.id}>{subject.code} — {subject.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-faint mr-1">Module</span>
+              <select
+                value={moduleId}
+                onChange={(e) => setModuleId(e.target.value)}
+                disabled={!subjectId}
+                className="chip appearance-none cursor-pointer max-w-[180px] disabled:opacity-50"
+                aria-label="Module"
+              >
+                <option value="">Any module</option>
+                {(catalog.find((subject) => subject.id === subjectId)?.modules ?? []).map((module) => (
+                  <option key={module.id} value={module.id}>{module.name}</option>
+                ))}
+              </select>
             </div>
 
             {/* Marks */}

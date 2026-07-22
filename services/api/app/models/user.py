@@ -15,8 +15,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
 
-import enum
-
 
 class UserRole(str, enum.Enum):
     SUPER_ADMIN = "super_admin"
@@ -80,5 +78,5 @@ class RefreshToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     @property
     def is_expired(self) -> bool:
-        from datetime import UTC, datetime as dt
+        from datetime import UTC
         return datetime.now(UTC) > self.expires_at
