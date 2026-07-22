@@ -13,7 +13,6 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,10 +50,10 @@ class SourceCitation:
     document_id: uuid.UUID
     document_name: str
     relevance_score: float
-    page_number: Optional[int] = None
-    slide_number: Optional[int] = None
-    sheet_name: Optional[str] = None
-    preview: Optional[str] = None
+    page_number: int | None = None
+    slide_number: int | None = None
+    sheet_name: str | None = None
+    preview: str | None = None
     content: str = ""
 
 
@@ -63,7 +62,7 @@ class GenerationResult:
     """Outcome of the RAG pipeline for one question."""
 
     status: AnswerStatus
-    answer: Optional[str]
+    answer: str | None
     word_count: int
     model_name: str
     prompt_version: str
@@ -197,7 +196,7 @@ class AnswerGenerationService:
         question: str,
         subject_id: uuid.UUID,
         marks: int,
-        module_id: Optional[uuid.UUID] = None,
+        module_id: uuid.UUID | None = None,
     ) -> GenerationResult:
         start = time.time()
         s = self.settings

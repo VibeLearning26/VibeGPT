@@ -6,16 +6,15 @@ Tables: users, refresh_tokens
 
 from __future__ import annotations
 
+import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
-
-import enum
 
 
 class UserRole(str, enum.Enum):
@@ -80,5 +79,5 @@ class RefreshToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     @property
     def is_expired(self) -> bool:
-        from datetime import UTC, datetime as dt
+        from datetime import UTC
         return datetime.now(UTC) > self.expires_at

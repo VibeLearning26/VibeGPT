@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import hash_password
-from app.models.answer_rule import AnswerRule
 from app.models.academic import Department, Semester
+from app.models.answer_rule import AnswerRule
 from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)

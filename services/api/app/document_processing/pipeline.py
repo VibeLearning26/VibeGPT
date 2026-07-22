@@ -94,7 +94,9 @@ async def process_document(document_id: uuid.UUID, job_id: uuid.UUID) -> None:
             embeddings = await asyncio.to_thread(service.embed_batch, texts)
 
             # 4. Persist chunks
-            for idx, ((text, unit), embedding) in enumerate(zip(pairs, embeddings)):
+            for idx, ((text, unit), embedding) in enumerate(
+                zip(pairs, embeddings, strict=True)
+            ):
                 db.add(
                     DocumentChunk(
                         document_id=doc.id,
