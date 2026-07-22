@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
-import { getCurrentUser, logout } from "@/lib/auth";
+import { getCurrentUser, isDemoMode, logout } from "@/lib/auth";
 import { hasRealSession } from "@/lib/api";
 
 const navItems = [
@@ -24,7 +24,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     const user = getCurrentUser();
-    if (!hasRealSession() || !user || user.role !== "admin") {
+    const hasValidSession = isDemoMode ? Boolean(user) : hasRealSession();
+    if (!hasValidSession || !user || user.role !== "admin") {
       logout();
       router.replace("/login");
       return;
