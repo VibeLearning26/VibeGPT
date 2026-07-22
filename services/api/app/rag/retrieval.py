@@ -43,7 +43,7 @@ class RetrievalService:
                 .where(
                     DocumentChunk.is_active.is_(True),
                     Document.is_active.is_(True),
-                    Document.status == DocumentStatus.READY,
+                    Document.status == DocumentStatus.PUBLISHED,
                     Document.subject_id == subject_id
                 )
             )
@@ -94,7 +94,8 @@ class RetrievalService:
                 DocumentChunk.is_active.is_(True),
                 DocumentChunk.embedding.is_not(None),
                 Document.is_active.is_(True),
-                Document.status.in_([DocumentStatus.READY, DocumentStatus.PUBLISHED]),
+                # READY means indexed but awaiting admin approval.
+                Document.status == DocumentStatus.PUBLISHED,
                 Document.subject_id == subject_id,
             )
         )

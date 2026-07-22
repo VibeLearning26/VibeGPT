@@ -10,14 +10,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.config import get_settings
 from app.database.session import async_session_factory
 from app.document_processing.chunker import chunk_elements
 from app.document_processing.parsers import parse_document
-from app.document_processing.service import DocumentProcessingService
 from app.models.document import (
     Document,
     DocumentChunk,
@@ -26,7 +26,8 @@ from app.models.document import (
     ProcessingJobStatus,
     SourceType,
 )
-from app.services.embedding import get_embedding_service
+from app.rag.embedding import EmbeddingService
+from app.storage import get_document_storage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,6 +35,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 settings = get_settings()
+storage = get_document_storage()
 
 
 def infer_source_type_from_filename(filename: str) -> SourceType:
@@ -142,8 +144,6 @@ class DocumentWorker:
             if job:
                 # Update job status to RUNNING immediately
                 job.status = ProcessingJobStatus.RUNNING
-                from datetime import UTC, datetime
-
                 job.started_at = datetime.now(UTC)
                 await session.flush()
                 # Refresh to get updated state
@@ -169,31 +169,22 @@ class DocumentWorker:
             job, doc = row
 
             try:
-                # Use new processing pipeline
-                DocumentProcessingService(session)
-
                 # Update job status
                 job.status = ProcessingJobStatus.RUNNING
                 job.started_at = datetime.now(UTC)
                 await session.flush()
 
                 # Read file
-                import os
+                file_bytes = await storage.get(doc.storage_path)
 
-                if not os.path.exists(doc.storage_path):
-                    raise FileNotFoundError(f"File not found: {doc.storage_path}")
-                with open(doc.storage_path, "rb") as f:
-                    file_bytes = f.read()
-
-                # Determine source type (auto-detect from filename if "other")
-                source_type = doc.source_type
-                if source_type == SourceType.OTHER:
-                    source_type = infer_source_type_from_filename(doc.original_filename)
-                    doc.source_type = source_type  # Update for future reference
+                # Keep the admin's semantic category, but parse using the
+                # verified MIME type so teacher-answer and paper categories work.
+                if doc.source_type == SourceType.OTHER:
+                    doc.source_type = infer_source_type_from_filename(doc.original_filename)
                     await session.flush()
 
                 # Parse document
-                elements = parse_document(file_bytes, source_type)
+                elements = await asyncio.to_thread(parse_document, file_bytes, doc.mime_type)
                 if not elements:
                     raise ValueError("No text content extracted from document")
 
@@ -203,9 +194,18 @@ class DocumentWorker:
                     raise ValueError("No chunks created from document")
 
                 # Generate embeddings
-                embedding_service = get_embedding_service()
+                embedding_service = EmbeddingService()
                 chunk_texts = [c.content for c in chunks]
-                embeddings = embedding_service.embed_texts(chunk_texts)
+                embeddings = await asyncio.to_thread(
+                    embedding_service.embed_batch, chunk_texts
+                )
+                if len(embeddings) != len(chunks):
+                    raise ValueError("Embedding count does not match chunk count")
+
+                # Retries replace any partial prior output.
+                await session.execute(
+                    delete(DocumentChunk).where(DocumentChunk.document_id == doc.id)
+                )
 
                 # Save chunks to database
                 for _i, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
@@ -245,8 +245,6 @@ class DocumentWorker:
         self, session, job: DocumentProcessingJob, doc: Document, error: str
     ) -> None:
         """Handle processing failure with retry logic."""
-        from datetime import UTC, datetime
-
         max_retries = self.max_retries
 
         if job.retry_count < max_retries:
@@ -277,6 +275,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    from datetime import UTC, datetime
-
     asyncio.run(main())

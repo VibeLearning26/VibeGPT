@@ -91,6 +91,7 @@ class OllamaClient:
             "model": self.model,
             "messages": messages,
             "stream": False,
+            "options": {"temperature": 0.1},
         }
 
         try:

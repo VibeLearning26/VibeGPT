@@ -3,17 +3,14 @@
 import { useState, useRef, useEffect } from "react";
 import {
   MARKS_OPTIONS,
-  SEMESTER_OPTIONS,
-  SUBJECTS,
+  ACTIVE_SEMESTERS,
   routeQuestion,
   generateMockAnswer,
   simplifyAnswer,
   type StudyAnswer,
   type RouteResult,
-  type Subject,
 } from "@/lib/mockData";
-import { readDemoSubjects } from "@/lib/demoAcademic";
-import { askQuestion, fetchApi, hasRealSession, isUuid, type ApiAnswerResponse } from "@/lib/api";
+import { askQuestion, fetchApi, hasRealSession, type ApiAnswerResponse } from "@/lib/api";
 
 interface RealSubject {
   id: string;
@@ -94,11 +91,8 @@ const semLabel = (sem: string) => `Semester ${sem.replace("S", "")}`;
 export default function ChatPage() {
   const [marks, setMarks] = useState(5);
   const [semester, setSemester] = useState(
-    "S5",
+    ACTIVE_SEMESTERS.includes("S5") ? "S5" : ACTIVE_SEMESTERS[0],
   );
-  const [catalog, setCatalog] = useState<Subject[]>(SUBJECTS);
-  const [subjectId, setSubjectId] = useState("");
-  const [moduleId, setModuleId] = useState("");
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [answer, setAnswer] = useState<StudyAnswer | null>(null);
@@ -106,33 +100,19 @@ export default function ChatPage() {
   const [showSources, setShowSources] = useState(false);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Real backend subjects the student can access (empty in demo mode).
   const [realSubjects, setRealSubjects] = useState<RealSubject[]>([]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const items = readDemoSubjects();
-      setCatalog(items);
-      const params = new URLSearchParams(window.location.search);
-      const requestedSubject = params.get("subject") ?? "";
-      const requestedModule = params.get("module") ?? "";
-      const selected = items.find((item) => item.id === requestedSubject);
-      if (selected) {
-        setSemester(selected.semester);
-        setSubjectId(selected.id);
-        if (selected.modules.some((module) => module.id === requestedModule)) {
-          setModuleId(requestedModule);
-        }
-      }
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
 
   useEffect(() => {
     if (!hasRealSession()) return;
     fetchApi("/api/v1/student/subjects")
-      .then((subs: RealSubject[]) => setRealSubjects(subs))
+      .then((subs: RealSubject[]) => {
+        setRealSubjects(subs);
+        setSelectedSubjectId((current) => current || subs[0]?.id || "");
+      })
       .catch(() => setRealSubjects([]));
   }, []);
 
@@ -140,59 +120,47 @@ export default function ChatPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [answer, loading]);
 
-  /** Find the real UUID subject matching a mock-routed subject (by code, then name). */
-  const matchRealSubject = (code: string, name: string): RealSubject | undefined =>
-    realSubjects.find((s) => s.code.toLowerCase() === code.toLowerCase()) ??
-    realSubjects.find((s) => s.name.toLowerCase() === name.toLowerCase());
-
   const run = async (q: string, m: number) => {
-    // Route the question to a subject within the chosen semester (mock "AI").
-    const selectedSubject = catalog.find((subject) => subject.id === subjectId);
-    const selectedModule = selectedSubject?.modules.find((module) => module.id === moduleId);
-    const automaticRoute = routeQuestion(q, semester, catalog);
-    const route: RouteResult | null = selectedSubject
-      ? {
-          subject: selectedSubject,
-          module: selectedModule ?? selectedSubject.modules[0] ?? {
-            id: `${selectedSubject.id}-general`,
-            name: "General",
-            materials: 0,
-          },
-          confidence: "high",
-        }
-      : automaticRoute;
+    const realSession = hasRealSession();
+    const route = realSession ? null : routeQuestion(q, semester);
     setDetected(route);
     setLoading(true);
     setShowSources(false);
     setCopied(false);
     setSaved(false);
+    setRunError(null);
 
-    // When logged into the real backend, resolve the routed subject to a real
-    // UUID (mock ids like "dbms" are matched to API subjects by code/name) and
-    // ask the Ollama-backed RAG pipeline; otherwise fall back to the local mock.
-    if (hasRealSession()) {
-      const real = route
-        ? isUuid(route.subject.id)
-          ? { id: route.subject.id, name: route.subject.name, code: route.subject.code }
-          : matchRealSubject(route.subject.code, route.subject.name)
-        : realSubjects[0]; // no mock route — let retrieval decide relevance
+    // Grounded mode always queries the subject explicitly selected by the student.
+    if (realSession) {
+      const real = realSubjects.find((subject) => subject.id === selectedSubjectId);
       if (real) {
         try {
           const api = await askQuestion({
             subject_id: real.id,
-            module_id: route && isUuid(route.module.id) ? route.module.id : null,
+            module_id: null,
             marks: m,
             question: q,
           });
           setAnswer(
-            apiAnswerToStudyAnswer(api, real.name, route?.module.name ?? "General"),
+            apiAnswerToStudyAnswer(api, real.name, "Whole subject"),
           );
           setLoading(false);
           return;
-        } catch {
-          // Backend unreachable or errored — fall through to mock below.
+        } catch (error) {
+          setRunError(
+            error instanceof Error
+              ? error.message
+              : "The grounded answer service is unavailable.",
+          );
+          setLoading(false);
+          return;
         }
       }
+      setRunError(
+        "Select an accessible subject first, or ask an admin to assign your department and semester.",
+      );
+      setLoading(false);
+      return;
     }
 
     const result = route
@@ -233,8 +201,10 @@ export default function ChatPage() {
         <div>
           <h1 className="text-base font-semibold">Ask a question</h1>
           <p className="text-xs text-faint">
-            {semLabel(semester)}
-            {detected ? ` · ${detected.subject.name}` : " · subject auto-detected"}
+            {realSubjects.length > 0
+              ? realSubjects.find((subject) => subject.id === selectedSubjectId)?.name
+              : semLabel(semester)}
+            {detected ? ` · ${detected.subject.name}` : " · grounded study mode"}
           </p>
         </div>
         <span className="badge badge-red hidden sm:inline-flex">● Grounded mode</span>
@@ -243,6 +213,15 @@ export default function ChatPage() {
       {/* Conversation area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-5 sm:px-8 py-8">
+          {runError && (
+            <div className="panel p-4 mb-5 border border-err/40" role="alert">
+              <p className="text-sm font-semibold text-err">Grounded answer unavailable</p>
+              <p className="text-xs text-muted mt-1">{runError}</p>
+              <p className="text-xs text-faint mt-1">
+                No mock answer was substituted because you are signed in to grounded mode.
+              </p>
+            </div>
+          )}
           {!answer && !loading && (
             <div className="text-center py-16 fade-up">
               <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-panel border border-line glow-ring flex items-center justify-center text-3xl">
@@ -279,7 +258,11 @@ export default function ChatPage() {
                 <p className="text-[15px]">{answer?.question ?? (question || "…")}</p>
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
                   <span className="badge badge-neutral">{answer?.marks ?? marks} marks</span>
-                  <span className="badge badge-neutral">{semLabel(semester)}</span>
+                  <span className="badge badge-neutral">
+                    {realSubjects.length > 0
+                      ? realSubjects.find((subject) => subject.id === selectedSubjectId)?.code
+                      : semLabel(semester)}
+                  </span>
                   {detected && (
                     <span className="text-[11px] text-faint">
                       {detected.subject.icon} {detected.subject.code}
@@ -373,59 +356,41 @@ export default function ChatPage() {
         <form onSubmit={handleSubmit} className="max-w-3xl mx-auto">
           {/* Selectors */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            {/* Semester */}
+            {/* Subject in grounded mode; semester in demo mode */}
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-faint mr-1">Semester</span>
+              <span className="text-[11px] text-faint mr-1">
+                {realSubjects.length > 0 ? "Subject" : "Semester"}
+              </span>
               <div className="relative">
-                <select
-                  value={semester}
-                  onChange={(e) => {
-                    setSemester(e.target.value);
-                    setSubjectId("");
-                    setModuleId("");
-                  }}
-                  className="chip appearance-none pr-7 cursor-pointer"
-                  aria-label="Semester"
-                >
-                  {SEMESTER_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {semLabel(s)}
-                    </option>
-                  ))}
-                </select>
+                {realSubjects.length > 0 ? (
+                  <select
+                    value={selectedSubjectId}
+                    onChange={(e) => setSelectedSubjectId(e.target.value)}
+                    className="chip appearance-none pr-7 cursor-pointer"
+                    aria-label="Subject"
+                  >
+                    {realSubjects.map((subject) => (
+                      <option key={subject.id} value={subject.id}>
+                        {subject.code} · {subject.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    value={semester}
+                    onChange={(e) => setSemester(e.target.value)}
+                    className="chip appearance-none pr-7 cursor-pointer"
+                    aria-label="Semester"
+                  >
+                    {ACTIVE_SEMESTERS.map((s) => (
+                      <option key={s} value={s}>
+                        {semLabel(s)}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-faint text-[10px]">▾</span>
               </div>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-faint mr-1">Subject</span>
-              <select
-                value={subjectId}
-                onChange={(e) => { setSubjectId(e.target.value); setModuleId(""); }}
-                className="chip appearance-none cursor-pointer max-w-[190px]"
-                aria-label="Subject"
-              >
-                <option value="">Auto-detect</option>
-                {catalog.filter((subject) => subject.semester === semester).map((subject) => (
-                  <option key={subject.id} value={subject.id}>{subject.code} — {subject.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-faint mr-1">Module</span>
-              <select
-                value={moduleId}
-                onChange={(e) => setModuleId(e.target.value)}
-                disabled={!subjectId}
-                className="chip appearance-none cursor-pointer max-w-[180px] disabled:opacity-50"
-                aria-label="Module"
-              >
-                <option value="">Any module</option>
-                {(catalog.find((subject) => subject.id === subjectId)?.modules ?? []).map((module) => (
-                  <option key={module.id} value={module.id}>{module.name}</option>
-                ))}
-              </select>
             </div>
 
             {/* Marks */}

@@ -9,25 +9,36 @@ Dashboard, feedback, audit logs.
 from __future__ import annotations
 
 import hashlib
+import io
 import uuid
+import zipfile
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.core.dependencies import AdminUser, DbSession
-from app.core.exceptions import ConflictError, NotFoundError
-from app.core.security import hash_password
-from app.document_processing.pipeline import process_document
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
+from app.core.security import hash_password, validate_password_strength
 from app.models.academic import (
-    AcademicYear, Department, Module, Semester, Subject,
+    AcademicYear,
+    Department,
+    Module,
+    Semester,
+    Subject,
 )
-from app.models.document import Document, DocumentProcessingJob, DocumentStatus, ProcessingJobStatus, SourceType
+from app.models.document import (
+    Document,
+    DocumentProcessingJob,
+    DocumentStatus,
+    ProcessingJobStatus,
+    SourceType,
+)
 from app.models.question import Feedback, QuestionLog
-from app.models.user import User, UserRole
 from app.models.system import AuditLog
+from app.models.user import User, UserRole
 from app.schemas.academic import (
     AcademicYearCreate,
     AcademicYearResponse,
@@ -36,6 +47,7 @@ from app.schemas.academic import (
     DepartmentUpdate,
     ModuleCreate,
     ModuleResponse,
+    ModuleUpdate,
     SemesterCreate,
     SemesterResponse,
     SubjectCreate,
@@ -47,6 +59,7 @@ from app.schemas.academic import (
 )
 from app.schemas.common import MessageResponse
 from app.schemas.document import DocumentUploadResponse
+from app.storage import get_document_storage
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -215,6 +228,17 @@ async def update_subject(subject_id: UUID, body: SubjectUpdate, current_user: Ad
     return SubjectResponse.model_validate(subj)
 
 
+@router.delete("/subjects/{subject_id}", response_model=MessageResponse)
+async def archive_subject(subject_id: UUID, current_user: AdminUser, db: DbSession):
+    result = await db.execute(select(Subject).where(Subject.id == subject_id))
+    subj = result.scalar_one_or_none()
+    if not subj:
+        raise NotFoundError("Subject")
+    subj.archived_at = datetime.now(UTC)
+    await db.flush()
+    return MessageResponse(message="Subject archived")
+
+
 # ── Modules CRUD ─────────────────────────────────────────────
 
 @router.post("/modules", response_model=ModuleResponse, status_code=201)
@@ -235,6 +259,30 @@ async def list_modules(current_user: AdminUser, db: DbSession, subject_id: UUID 
     return [ModuleResponse.model_validate(m) for m in result.scalars().all()]
 
 
+@router.patch("/modules/{module_id}", response_model=ModuleResponse)
+async def update_module(module_id: UUID, body: ModuleUpdate, current_user: AdminUser, db: DbSession):
+    result = await db.execute(select(Module).where(Module.id == module_id))
+    mod = result.scalar_one_or_none()
+    if not mod:
+        raise NotFoundError("Module")
+    for key, val in body.model_dump(exclude_unset=True).items():
+        setattr(mod, key, val)
+    await db.flush()
+    await db.refresh(mod)
+    return ModuleResponse.model_validate(mod)
+
+
+@router.delete("/modules/{module_id}", response_model=MessageResponse)
+async def archive_module(module_id: UUID, current_user: AdminUser, db: DbSession):
+    result = await db.execute(select(Module).where(Module.id == module_id))
+    mod = result.scalar_one_or_none()
+    if not mod:
+        raise NotFoundError("Module")
+    mod.archived_at = datetime.now(UTC)
+    await db.flush()
+    return MessageResponse(message="Module archived")
+
+
 # ── Users CRUD ───────────────────────────────────────────────
 
 @router.post("/users", response_model=UserResponse, status_code=201)
@@ -243,11 +291,42 @@ async def create_user(body: UserCreate, current_user: AdminUser, db: DbSession):
     if existing.scalar_one_or_none():
         raise ConflictError(f"User with email '{body.email}' already exists")
 
+    password_issues = validate_password_strength(body.password)
+    if password_issues:
+        raise ValidationError("; ".join(password_issues))
+
+    try:
+        role = UserRole(body.role)
+    except ValueError as exc:
+        raise ValidationError("Invalid user role") from exc
+
+    if body.department_id is not None:
+        department = await db.execute(
+            select(Department).where(
+                Department.id == body.department_id,
+                Department.is_active == True,  # noqa: E712
+                Department.archived_at.is_(None),
+            )
+        )
+        if department.scalar_one_or_none() is None:
+            raise NotFoundError("Department")
+
+    if body.semester_id is not None:
+        semester = await db.execute(
+            select(Semester).where(
+                Semester.id == body.semester_id,
+                Semester.is_active == True,  # noqa: E712
+                Semester.archived_at.is_(None),
+            )
+        )
+        if semester.scalar_one_or_none() is None:
+            raise NotFoundError("Semester")
+
     user = User(
         email=body.email,
         hashed_password=hash_password(body.password),
         full_name=body.full_name,
-        role=UserRole(body.role),
+        role=role,
         department_id=body.department_id,
         semester_id=body.semester_id,
     )
@@ -306,47 +385,72 @@ def _validate_file_type(filename: str) -> str:
     mime_map = {
         "pdf": "application/pdf",
         "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "ppt": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "doc": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "xls": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
     if ext not in mime_map:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
     return mime_map[ext]
 
 
+def _validate_file_content(file_bytes: bytes, extension: str) -> None:
+    """Reject empty, corrupt, or extension-spoofed supported documents."""
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    if extension == "pdf":
+        if not file_bytes.startswith(b"%PDF-"):
+            raise HTTPException(status_code=400, detail="File content is not a valid PDF")
+        return
+
+    expected_members = {
+        "pptx": "ppt/presentation.xml",
+        "docx": "word/document.xml",
+        "xlsx": "xl/workbook.xml",
+    }
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+            if expected_members[extension] not in archive.namelist():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File content is not a valid {extension.upper()} document",
+                )
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File content is not a valid {extension.upper()} document",
+        ) from exc
+
+
 @router.post("/documents/upload", response_model=DocumentUploadResponse, status_code=201)
 async def upload_document(
-    background_tasks: BackgroundTasks,
-    file: Annotated[UploadFile, File()],
-    subject_id: Annotated[UUID, Form()],
-    module_id: Annotated[UUID | None, Form()] = None,
-    source_type: Annotated[str, Form()] = "other",
-    description: Annotated[str | None, Form(max_length=2000)] = None,
-    topic: Annotated[str | None, Form(max_length=500)] = None,
+    file: UploadFile = File(...),
+    subject_id: UUID = Form(...),
+    module_id: UUID | None = Form(None),
+    source_type: str = Form(default="other"),
+    description: str | None = Form(None, max_length=2000),
+    topic: str | None = Form(None, max_length=500),
     *,
     current_user: AdminUser,
     db: DbSession,
 ):
-    import os
     settings = get_settings()
+    storage = get_document_storage()
 
     # Validate extension
     filename = file.filename or "unknown"
     ext = filename.lower().split(".")[-1] if "." in filename else ""
-    if ext not in ("pdf", "pptx", "ppt", "docx", "doc", "xlsx", "xls"):
+    if ext not in ("pdf", "pptx", "docx", "xlsx"):
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
     mime_type = _validate_file_type(filename)
 
     # Read file with size enforcement during read
-    CHUNK_SIZE = 1024 * 1024  # 1MB chunks
+    chunk_size = 1024 * 1024  # 1MB chunks
     sha256_hash = hashlib.sha256()
     file_size = 0
     file_buffer = bytearray()
     while True:
-        chunk = await file.read(CHUNK_SIZE)
+        chunk = await file.read(chunk_size)
         if not chunk:
             break
         sha256_hash.update(chunk)
@@ -357,6 +461,7 @@ async def upload_document(
 
     file_bytes = bytes(file_buffer)
     file_hash = sha256_hash.hexdigest()
+    _validate_file_content(file_bytes, ext)
 
     # Check for duplicates
     existing = await db.execute(
@@ -368,24 +473,45 @@ async def upload_document(
         raise HTTPException(status_code=409, detail="Document already exists")
 
     # Verify subject exists
-    result = await db.execute(select(Subject).where(Subject.id == subject_id))
+    result = await db.execute(
+        select(Subject).where(
+            Subject.id == subject_id,
+            Subject.is_active == True,  # noqa: E712
+            Subject.archived_at.is_(None),
+        )
+    )
     if result.scalar_one_or_none() is None:
         raise NotFoundError("Subject")
 
     # Verify module if provided
     if module_id:
-        result = await db.execute(select(Module).where(Module.id == module_id))
+        result = await db.execute(
+            select(Module).where(
+                Module.id == module_id,
+                Module.subject_id == subject_id,
+                Module.is_active == True,  # noqa: E712
+                Module.archived_at.is_(None),
+            )
+        )
         if result.scalar_one_or_none() is None:
-            raise NotFoundError("Module")
+            raise NotFoundError("Module", "Module not found in the selected subject")
 
     # Prepare secure storage path
     secure_name = _get_secure_filename(filename)
-    storage_path = settings.upload_path / secure_name
-    stored_path_str = str(storage_path)
+    object_key = f"subjects/{subject_id}/{secure_name}"
+    stored_path_str = object_key
+
+    try:
+        source = SourceType(source_type)
+    except ValueError as exc:
+        allowed = ", ".join(item.value for item in SourceType)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid source_type. Allowed values: {allowed}",
+        ) from exc
 
     doc = None
     try:
-        source = SourceType(source_type)
         doc = Document(
             subject_id=subject_id,
             module_id=module_id,
@@ -413,18 +539,23 @@ async def upload_document(
         db.add(job)
         await db.flush()
 
-        storage_path.write_bytes(file_bytes)
+        stored_path_str = await storage.put(object_key, file_bytes, mime_type)
+        doc.storage_path = stored_path_str
+        await db.flush()
     except Exception:
         await db.rollback()
-        if os.path.exists(stored_path_str):
-            os.remove(stored_path_str)
+        try:
+            await storage.delete(stored_path_str)
+        except Exception:
+            pass
         raise
 
     # Commit now so the background task (separate session) can see the rows.
     await db.commit()
 
     # Kick off extraction → chunking → embedding after the response returns.
-    background_tasks.add_task(process_document, doc.id, job.id)
+    # The dedicated worker atomically claims this pending job. Processing it
+    # here as well would race the worker and can create duplicate chunks.
 
     return DocumentUploadResponse(
         id=doc.id,

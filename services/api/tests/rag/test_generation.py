@@ -122,5 +122,5 @@ def test_build_prompt_includes_sources_and_question():
 def test_validate_answer_detects_unknown_citation():
     citations = _build_citations([(make_chunk("x"), 0.9)])
     validation = validate_answer("Claim [S1]. Bogus [S9].", citations, rule=None)
-    assert validation["citations_valid"] is True
+    assert validation["citations_valid"] is False
     assert validation["unknown_citations"] == ["S9"]

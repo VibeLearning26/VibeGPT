@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -56,8 +56,13 @@ class Settings(BaseSettings):
     RAG_MIN_SOURCES: int = 1
 
     # ── File Storage ─────────────────────────────────────────
+    STORAGE_BACKEND: Literal["local", "supabase"] = "local"
     UPLOAD_DIRECTORY: str = "./uploads"
-    MAX_UPLOAD_SIZE_MB: int = 50
+    MAX_UPLOAD_SIZE_MB: int = 20
+    SUPABASE_URL: str = ""
+    SUPABASE_SECRET_KEY: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
+    SUPABASE_STORAGE_BUCKET: str = "documents"
 
     # ── CORS ─────────────────────────────────────────────────
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
@@ -85,6 +90,11 @@ class Settings(BaseSettings):
         return self.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
     @property
+    def supabase_server_key(self) -> str:
+        """Prefer the current secret key and support the legacy service-role key."""
+        return self.SUPABASE_SECRET_KEY or self.SUPABASE_SERVICE_ROLE_KEY
+
+    @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
 
@@ -100,6 +110,23 @@ class Settings(BaseSettings):
                 stacklevel=2,
             )
         return v
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> Settings:
+        if self.is_production:
+            if self.JWT_SECRET_KEY == "change-this-to-a-random-64-char-string":
+                raise ValueError("JWT_SECRET_KEY must be changed in production")
+            if self.INITIAL_ADMIN_PASSWORD == "change-this-admin-password":
+                raise ValueError("INITIAL_ADMIN_PASSWORD must be changed in production")
+        if self.STORAGE_BACKEND == "supabase":
+            if not self.SUPABASE_URL:
+                raise ValueError("SUPABASE_URL is required when STORAGE_BACKEND=supabase")
+            if not self.supabase_server_key:
+                raise ValueError(
+                    "SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY) "
+                    "is required when STORAGE_BACKEND=supabase"
+                )
+        return self
 
 
 @lru_cache

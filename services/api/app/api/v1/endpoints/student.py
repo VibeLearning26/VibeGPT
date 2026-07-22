@@ -13,16 +13,15 @@ GET  /api/v1/student/saved-answers
 GET  /api/v1/student/profile
 """
 
-from __future__ import annotations
-
 from uuid import UUID
 
-from fastapi import APIRouter, Query
-from sqlalchemy import select, func, and_
+from fastapi import APIRouter, Query, Request
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import DbSession, StudentUser
-from app.core.exceptions import NotFoundError, AuthorizationError
+from app.core.exceptions import AuthorizationError, NotFoundError
+from app.core.rate_limit import limiter
 from app.models.academic import Module, StudentSubjectPermission, Subject
 from app.models.question import Feedback, QuestionLog, QuestionSource, SavedAnswer
 from app.rag.generation import AnswerGenerationService
@@ -41,21 +40,50 @@ from app.schemas.question import (
 router = APIRouter(prefix="/student", tags=["Student"])
 
 
+def _subject_access_clause(current_user):
+    """Allow explicit grants or the student's assigned department/semester cohort."""
+    clauses = [StudentSubjectPermission.id.is_not(None)]
+    if current_user.department_id is not None and current_user.semester_id is not None:
+        clauses.append(
+            and_(
+                Subject.department_id == current_user.department_id,
+                Subject.semester_id == current_user.semester_id,
+            )
+        )
+    return or_(*clauses)
+
+
+def _accessible_subject_query(current_user):
+    return (
+        select(Subject)
+        .outerjoin(
+            StudentSubjectPermission,
+            and_(
+                StudentSubjectPermission.subject_id == Subject.id,
+                StudentSubjectPermission.user_id == current_user.id,
+                StudentSubjectPermission.is_active == True,  # noqa: E712
+            ),
+        )
+        .where(
+            Subject.is_active == True,  # noqa: E712
+            Subject.archived_at.is_(None),
+            _subject_access_clause(current_user),
+        )
+    )
+
+
+async def _require_subject_access(subject_id: UUID, current_user, db: DbSession) -> None:
+    result = await db.execute(
+        _accessible_subject_query(current_user).where(Subject.id == subject_id)
+    )
+    if result.scalar_one_or_none() is None:
+        raise AuthorizationError("You do not have access to this subject")
+
+
 @router.get("/subjects", response_model=list[SubjectResponse])
 async def get_student_subjects(current_user: StudentUser, db: DbSession):
     """Get subjects the student has access to."""
-    result = await db.execute(
-        select(Subject)
-        .join(StudentSubjectPermission)
-        .where(
-            and_(
-                StudentSubjectPermission.user_id == current_user.id,
-                StudentSubjectPermission.is_active.is_(True),
-                Subject.is_active.is_(True),
-                Subject.archived_at.is_(None),
-            )
-        )
-    )
+    result = await db.execute(_accessible_subject_query(current_user).distinct())
     subjects = result.scalars().all()
     return [SubjectResponse.model_validate(s) for s in subjects]
 
@@ -64,17 +92,7 @@ async def get_student_subjects(current_user: StudentUser, db: DbSession):
 async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: DbSession):
     """Get modules for a subject (must have access)."""
     # Verify access
-    perm = await db.execute(
-        select(StudentSubjectPermission).where(
-            and_(
-                StudentSubjectPermission.user_id == current_user.id,
-                StudentSubjectPermission.subject_id == subject_id,
-                StudentSubjectPermission.is_active.is_(True),
-            )
-        )
-    )
-    if perm.scalar_one_or_none() is None:
-        raise AuthorizationError("You do not have access to this subject")
+    await _require_subject_access(subject_id, current_user, db)
 
     result = await db.execute(
         select(Module)
@@ -92,25 +110,33 @@ async def get_subject_modules(subject_id: UUID, current_user: StudentUser, db: D
 
 
 @router.post("/answers", response_model=AnswerResponse)
-async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: DbSession):
+@limiter.limit("20/minute")
+async def ask_question(
+    request: Request,
+    body: AskQuestionRequest,
+    current_user: StudentUser,
+    db: DbSession,
+):
     """
     Submit a question and receive an exam-ready answer.
     This is the core RAG endpoint — skeleton for Phase 1.
     """
     # Verify subject access
-    perm = await db.execute(
-        select(StudentSubjectPermission).where(
-            and_(
-                StudentSubjectPermission.user_id == current_user.id,
-                StudentSubjectPermission.subject_id == body.subject_id,
-                StudentSubjectPermission.is_active.is_(True),
-            )
-        )
-    )
-    if perm.scalar_one_or_none() is None:
-        raise AuthorizationError("You do not have access to this subject")
+    await _require_subject_access(body.subject_id, current_user, db)
 
     # Full RAG pipeline: retrieve → prompt → Ollama → validate
+    if body.module_id is not None:
+        module_result = await db.execute(
+            select(Module).where(
+                Module.id == body.module_id,
+                Module.subject_id == body.subject_id,
+                Module.is_active == True,  # noqa: E712
+                Module.archived_at.is_(None),
+            )
+        )
+        if module_result.scalar_one_or_none() is None:
+            raise NotFoundError("Module", "Module not found in the selected subject")
+
     service = AnswerGenerationService(db)
     result = await service.generate(
         question=body.question,
@@ -177,6 +203,9 @@ async def ask_question(body: AskQuestionRequest, current_user: StudentUser, db: 
         processing_ms=question_log.processing_time_ms,
         validation=ValidationResult(
             word_count_valid=result.validation.get("word_count_valid", True),
+            required_sections_valid=result.validation.get(
+                "required_sections_valid", True
+            ),
             citations_valid=result.validation.get("citations_valid", True),
             details=result.validation or None,
         ),

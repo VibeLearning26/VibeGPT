@@ -1,4 +1,4 @@
-"""init and add vector extension
+"""Create the initial VibeGPT schema and pgvector extension.
 
 Revision ID: 78af08a344ac
 Revises:
@@ -6,23 +6,24 @@ Create Date: 2026-07-19 02:33:35.234046
 """
 from collections.abc import Sequence
 
-import pgvector.sqlalchemy
-import sqlalchemy as sa
-
+import app.models  # noqa: F401
 from alembic import op
+from app.database.base import Base
 
 # revision identifiers, used by Alembic.
-revision: str = '78af08a344ac'
+revision: str = "78af08a344ac"
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+
 def upgrade() -> None:
-    # Ensure pgvector extension exists
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    # Add embedding column to document_chunks
-    op.add_column('document_chunks', sa.Column('embedding', pgvector.sqlalchemy.Vector(384), nullable=True))
+    # The repository did not contain the table-creation revision this migration
+    # originally assumed. create_all is check-first and safely creates the full
+    # current schema on a fresh database without dropping existing tables.
+    Base.metadata.create_all(bind=op.get_bind(), checkfirst=True)
 
 
 def downgrade() -> None:
-    op.drop_column('document_chunks', 'embedding')
+    Base.metadata.drop_all(bind=op.get_bind(), checkfirst=True)

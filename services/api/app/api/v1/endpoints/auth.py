@@ -8,18 +8,17 @@ GET  /api/v1/auth/me
 POST /api/v1/auth/change-password
 """
 
-from __future__ import annotations
-
 import hashlib
-import sys
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, update
 
+from app.core.config import get_settings
 from app.core.dependencies import CurrentUser, DbSession
 from app.core.exceptions import AuthenticationError, ValidationError
+from app.core.rate_limit import limiter
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -41,7 +40,8 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: DbSession):
+@limiter.limit("5/minute")
+async def login(request: Request, body: LoginRequest, db: DbSession):
     """Authenticate with email and password. Returns access token and sets refresh cookie."""
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
@@ -75,23 +75,23 @@ async def login(body: LoginRequest, db: DbSession):
     await db.flush()
 
     # Create response with cookie
+    settings = get_settings()
     response = JSONResponse(
         content={
             "access_token": access_token,
             "token_type": "bearer",
-            "expires_in": 30 * 60,
+            "expires_in": settings.JWT_ACCESS_TOKEN_MINUTES * 60,
             "role": user.role.value,
         },
         status_code=200,
     )
-    print(f"DEBUG: response content = {response.body}", file=sys.stderr, flush=True)
     response.set_cookie(
         key="refresh_token",
         value=refresh_token_str,
         httponly=True,
-        secure=False,
+        secure=settings.is_production,
         samesite="lax",
-        max_age=7 * 24 * 60 * 60,
+        max_age=settings.JWT_REFRESH_TOKEN_DAYS * 24 * 60 * 60,
         path="/api/v1/auth",
     )
     return response
@@ -143,17 +143,22 @@ async def refresh_token(request: Request, db: DbSession, response: Response):
     db.add(new_db_token)
     await db.flush()
 
+    settings = get_settings()
     response.set_cookie(
         key="refresh_token",
         value=new_refresh_str,
         httponly=True,
-        secure=False,
+        secure=settings.is_production,
         samesite="lax",
-        max_age=7 * 24 * 60 * 60,
+        max_age=settings.JWT_REFRESH_TOKEN_DAYS * 24 * 60 * 60,
         path="/api/v1/auth",
     )
 
-    return TokenResponse(access_token=new_access, expires_in=30 * 60)
+    return TokenResponse(
+        access_token=new_access,
+        expires_in=settings.JWT_ACCESS_TOKEN_MINUTES * 60,
+        role=user.role.value,
+    )
 
 
 @router.post("/logout", response_model=MessageResponse)

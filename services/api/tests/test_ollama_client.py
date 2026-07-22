@@ -42,6 +42,7 @@ async def test_generate_success_without_system_prompt():
                 "model": "llama3.2:3b",
                 "messages": [{"role": "user", "content": "Hi"}],
                 "stream": False,
+                "options": {"temperature": 0.1},
             },
         )
 
@@ -73,6 +74,7 @@ async def test_generate_success_with_system_prompt():
                     {"role": "user", "content": "Who are you?"},
                 ],
                 "stream": False,
+                "options": {"temperature": 0.1},
             },
         )
 

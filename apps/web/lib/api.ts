@@ -143,6 +143,14 @@ export async function apiLogin(email: string, password: string): Promise<ApiToke
 // ── Admin: subjects / modules / documents ─────────────────────
 // Mirrors services/api app/schemas/academic.py and admin endpoints
 
+export interface ApiDepartment {
+  id: string;
+  name: string;
+  code: string;
+  description: string | null;
+  is_active: boolean;
+}
+
 export interface ApiSubject {
   id: string;
   name: string;
@@ -170,6 +178,18 @@ export interface ApiSemester {
   is_active: boolean;
 }
 
+export interface ApiUser {
+  id: string;
+  email: string;
+  full_name: string;
+  role: "super_admin" | "admin" | "student";
+  department_id: string | null;
+  semester_id: string | null;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+}
+
 export interface ApiDocument {
   id: string;
   document_name: string;
@@ -179,6 +199,17 @@ export interface ApiDocument {
   file_size: number;
   total_chunks: number;
   created_at: string;
+}
+
+export interface ApiDashboard {
+  published_documents: number;
+  pending_documents: number;
+  review_documents: number;
+  failed_jobs: number;
+  total_students: number;
+  questions_today: number;
+  avg_processing_ms: number;
+  low_rated_answers: number;
 }
 
 export type SourceTypeValue =
@@ -192,12 +223,42 @@ export type SourceTypeValue =
   | "other";
 
 export const adminApi = {
+  getDashboard: (): Promise<ApiDashboard> =>
+    fetchApi("/api/v1/admin/dashboard"),
+  listDepartments: (): Promise<ApiDepartment[]> => fetchApi("/api/v1/admin/departments"),
+
+  createDepartment: (data: { name: string; code: string; description?: string }): Promise<ApiDepartment> =>
+    fetchApi("/api/v1/admin/departments", { method: "POST", body: JSON.stringify(data) }),
+
+  archiveDepartment: (id: string): Promise<{ message: string }> =>
+    fetchApi(`/api/v1/admin/departments/${id}`, { method: "DELETE" }),
+
   listSemesters: (): Promise<ApiSemester[]> => fetchApi("/api/v1/admin/semesters"),
 
   listSubjects: (): Promise<ApiSubject[]> => fetchApi("/api/v1/admin/subjects"),
 
+  listUsers: (): Promise<ApiUser[]> => fetchApi("/api/v1/admin/users"),
+
+  createSubject: (data: { name: string; code: string; semester_id: string; department_id: string }): Promise<ApiSubject> =>
+    fetchApi("/api/v1/admin/subjects", { method: "POST", body: JSON.stringify(data) }),
+
+  updateSubject: (id: string, data: Partial<ApiSubject>): Promise<ApiSubject> =>
+    fetchApi(`/api/v1/admin/subjects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  archiveSubject: (id: string): Promise<{ message: string }> =>
+    fetchApi(`/api/v1/admin/subjects/${id}`, { method: "DELETE" }),
+
   listModules: (subjectId: string): Promise<ApiModule[]> =>
     fetchApi(`/api/v1/admin/modules?subject_id=${encodeURIComponent(subjectId)}`),
+
+  createModule: (data: { name: string; number: number; subject_id: string }): Promise<ApiModule> =>
+    fetchApi("/api/v1/admin/modules", { method: "POST", body: JSON.stringify(data) }),
+
+  updateModule: (id: string, data: { name: string }): Promise<ApiModule> =>
+    fetchApi(`/api/v1/admin/modules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  archiveModule: (id: string): Promise<{ message: string }> =>
+    fetchApi(`/api/v1/admin/modules/${id}`, { method: "DELETE" }),
 
   listDocuments: (subjectId?: string): Promise<ApiDocument[]> =>
     fetchApi(
