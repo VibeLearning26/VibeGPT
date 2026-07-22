@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile
@@ -23,22 +22,12 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.core.security import hash_password
 from app.document_processing.pipeline import process_document
 from app.models.academic import (
-    AcademicYear,
-    Department,
-    Module,
-    Semester,
-    Subject,
+    AcademicYear, Department, Module, Semester, Subject,
 )
-from app.models.document import (
-    Document,
-    DocumentProcessingJob,
-    DocumentStatus,
-    ProcessingJobStatus,
-    SourceType,
-)
+from app.models.document import Document, DocumentProcessingJob, DocumentStatus, ProcessingJobStatus, SourceType
 from app.models.question import Feedback, QuestionLog
-from app.models.system import AuditLog
 from app.models.user import User, UserRole
+from app.models.system import AuditLog
 from app.schemas.academic import (
     AcademicYearCreate,
     AcademicYearResponse,
@@ -352,12 +341,12 @@ async def upload_document(
     mime_type = _validate_file_type(filename)
 
     # Read file with size enforcement during read
-    chunk_size = 1024 * 1024  # 1MB chunks
+    CHUNK_SIZE = 1024 * 1024  # 1MB chunks
     sha256_hash = hashlib.sha256()
     file_size = 0
     file_buffer = bytearray()
     while True:
-        chunk = await file.read(chunk_size)
+        chunk = await file.read(CHUNK_SIZE)
         if not chunk:
             break
         sha256_hash.update(chunk)

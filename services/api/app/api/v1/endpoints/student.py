@@ -18,11 +18,11 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Query
-from sqlalchemy import and_, select
+from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import DbSession, StudentUser
-from app.core.exceptions import AuthorizationError, NotFoundError
+from app.core.exceptions import NotFoundError, AuthorizationError
 from app.models.academic import Module, StudentSubjectPermission, Subject
 from app.models.question import Feedback, QuestionLog, QuestionSource, SavedAnswer
 from app.rag.generation import AnswerGenerationService

@@ -51,6 +51,68 @@ async def create_academic_catalog(db: AsyncSession) -> None:
     await db.flush()
 
 
+DEFAULT_DEPARTMENTS = (
+    ("CSE", "Computer Science and Engineering"),
+    ("ECE", "Electronics and Communication Engineering"),
+    ("EEE", "Electrical and Electronics Engineering"),
+    ("ME", "Mechanical Engineering"),
+    ("CE", "Civil Engineering"),
+    ("AIDS", "Artificial Intelligence and Data Science"),
+    ("CC", "Computer Science Engineering and Cyber Security"),
+    ("CEBS", "Computer Engineering and Business Systems"),
+    ("CSD", "Computer Science and Design"),
+)
+
+
+async def create_default_departments(db: AsyncSession) -> None:
+    """Ensure the supported campus departments exist without creating duplicates."""
+    result = await db.execute(select(Department))
+    existing = {department.code.upper(): department for department in result.scalars().all()}
+    created: list[str] = []
+
+    for code, name in DEFAULT_DEPARTMENTS:
+        department = existing.get(code)
+        if department is not None:
+            department.name = name
+            department.is_active = True
+            department.archived_at = None
+            continue
+
+        db.add(Department(name=name, code=code, is_active=True))
+        created.append(code)
+
+    await db.flush()
+    if created:
+        logger.info("Created default departments: %s", ", ".join(created))
+    else:
+        logger.info("Default departments already exist")
+
+
+async def create_default_semesters(db: AsyncSession) -> None:
+    """Ensure the standard S1 through S8 semesters exist and are selectable."""
+    result = await db.execute(select(Semester))
+    existing = {semester.number: semester for semester in result.scalars().all()}
+    created: list[str] = []
+
+    for number in range(1, 9):
+        semester = existing.get(number)
+        if semester is not None:
+            # A previously archived standard semester must remain selectable.
+            semester.is_active = True
+            semester.archived_at = None
+            continue
+
+        name = f"S{number}"
+        db.add(Semester(number=number, name=name, is_active=True))
+        created.append(name)
+
+    await db.flush()
+    if created:
+        logger.info("Created default semesters: %s", ", ".join(created))
+    else:
+        logger.info("Default semesters S1-S8 already exist")
+
+
 async def create_initial_admin(db: AsyncSession) -> None:
     """Create the initial admin user if no admin exists."""
     settings = get_settings()
