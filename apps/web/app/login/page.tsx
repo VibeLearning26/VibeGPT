@@ -31,6 +31,14 @@ export default function LoginPage() {
     setLoading(true);
     logout();
 
+    // Try mock login first (works without backend)
+    const user = mockLogin(email, password);
+    if (user) {
+      router.push(user.role === 'student' ? '/student/chat' : '/admin/documents');
+      return;
+    }
+
+    // Fallback to real API
     try {
       if (isDemoMode) {
         const demoUser = mockLogin(email, password);
