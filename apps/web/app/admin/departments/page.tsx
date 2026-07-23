@@ -5,11 +5,15 @@ import { adminApi, type ApiDepartment } from "@/lib/api";
 
 export default function AdminDepartmentsPage() {
   const [departments, setDepartments] = useState<ApiDepartment[]>([]);
+  const [archivedDepartments, setArchivedDepartments] = useState<ApiDepartment[]>([]);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [deleteInput, setDeleteInput] = useState<Record<string, string>>({});
+  const [showDeleteModal, setShowDeleteModal] = useState<string | null>(null);
 
   useEffect(() => {
     adminApi.listDepartments()
@@ -19,6 +23,16 @@ export default function AdminDepartmentsPage() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (showArchived && archivedDepartments.length === 0) {
+      adminApi.listArchivedDepartments()
+        .then(setArchivedDepartments)
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : "Unable to load archived departments");
+        });
+    }
+  }, [showArchived]);
 
   const addDepartment = async () => {
     if (!name.trim() || !code.trim()) return;
@@ -46,8 +60,39 @@ export default function AdminDepartmentsPage() {
     try {
       await adminApi.archiveDepartment(department.id);
       setDepartments((current) => current.filter((item) => item.id !== department.id));
+      setArchivedDepartments((current) => [...current, department]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to archive department");
+    }
+  };
+
+  const unarchiveDepartment = async (department: ApiDepartment) => {
+    try {
+      const updated = await adminApi.unarchiveDepartment(department.id);
+      setArchivedDepartments((current) => current.filter((item) => item.id !== department.id));
+      setDepartments((current) => [...current, updated]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to unarchive department");
+    }
+  };
+
+  const confirmDeleteDepartment = (department: ApiDepartment) => {
+    setShowDeleteModal(department.id);
+    setDeleteInput((current) => ({ ...current, [department.id]: "" }));
+  };
+
+  const deleteDepartment = async (department: ApiDepartment) => {
+    const entered = deleteInput[department.id]?.trim() ?? "";
+    if (entered !== department.code) {
+      setError("Department code does not match");
+      return;
+    }
+    try {
+      await adminApi.deleteDepartment(department.id, department.code);
+      setArchivedDepartments((current) => current.filter((item) => item.id !== department.id));
+      setShowDeleteModal(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete department");
     }
   };
 
@@ -130,6 +175,80 @@ export default function AdminDepartmentsPage() {
           ))}
         </div>
       )}
+
+      <div className="mt-10">
+        <button
+          className="text-xs text-muted hover:text-brand-accent transition mb-4"
+          onClick={() => setShowArchived((v) => !v)}
+        >
+          {showArchived ? "Hide archived departments" : "Show archived departments"}
+        </button>
+
+        {showArchived && (
+          <div className="grid sm:grid-cols-2 gap-3">
+            {archivedDepartments.map((department) => (
+              <article
+                key={department.id}
+                className="card card-hover p-5 fade-up flex items-start gap-4 opacity-80"
+              >
+                <div className="w-12 h-12 shrink-0 rounded-xl bg-panel-2 border border-line flex items-center justify-center font-bold text-faint">
+                  {department.code.slice(0, 3)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h2 className="font-semibold leading-tight line-through decoration-faint">{department.name}</h2>
+                    <span className="badge badge-neutral shrink-0">{department.code}</span>
+                  </div>
+                  <p className="text-xs text-faint">Archived</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    className="btn-ghost text-brand-accent hover:bg-brand-accent/10"
+                    onClick={() => unarchiveDepartment(department)}
+                  >
+                    Unarchive
+                  </button>
+                  <button
+                    className="btn-ghost text-err hover:bg-err/10"
+                    onClick={() => confirmDeleteDepartment(department)}
+                  >
+                    Delete
+                  </button>
+                </div>
+                {showDeleteModal === department.id && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="panel p-5 max-w-sm w-full">
+                      <p className="text-sm font-semibold mb-2">Permanently delete department</p>
+                      <p className="text-xs text-muted mb-2">
+                        This action cannot be undone. To confirm, type the department code: <span className="font-mono font-bold">{department.code}</span>
+                      </p>
+                      <input
+                        className="input mb-3"
+                        placeholder="Enter department code"
+                        value={deleteInput[department.id] ?? ""}
+                        onChange={(e) => setDeleteInput((current) => ({ ...current, [department.id]: e.target.value }))}
+                      />
+                      <div className="flex gap-2 justify-end">
+                        <button className="btn-secondary" onClick={() => setShowDeleteModal(null)}>Cancel</button>
+                        <button
+                          className="btn-primary bg-err hover:bg-err/80"
+                          disabled={(deleteInput[department.id]?.trim() ?? "") !== department.code}
+                          onClick={() => deleteDepartment(department)}
+                        >
+                          Delete forever
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </article>
+            ))}
+            {archivedDepartments.length === 0 && (
+              <p className="text-xs text-muted">No archived departments.</p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

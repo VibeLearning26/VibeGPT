@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from app.core.config import get_settings
@@ -132,6 +133,14 @@ async def list_departments(current_user: AdminUser, db: DbSession):
     return [DepartmentResponse.model_validate(d) for d in result.scalars().all()]
 
 
+@router.get("/departments/archived", response_model=list[DepartmentResponse])
+async def list_archived_departments(current_user: AdminUser, db: DbSession):
+    result = await db.execute(
+        select(Department).where(Department.archived_at.is_not(None)).order_by(Department.name)
+    )
+    return [DepartmentResponse.model_validate(d) for d in result.scalars().all()]
+
+
 @router.patch("/departments/{dept_id}", response_model=DepartmentResponse)
 async def update_department(dept_id: UUID, body: DepartmentUpdate, current_user: AdminUser, db: DbSession):
     result = await db.execute(select(Department).where(Department.id == dept_id))
@@ -154,6 +163,40 @@ async def archive_department(dept_id: UUID, current_user: AdminUser, db: DbSessi
     dept.archived_at = datetime.now(UTC)
     await db.flush()
     return MessageResponse(message="Department archived")
+
+
+@router.post("/departments/{dept_id}/unarchive", response_model=DepartmentResponse)
+async def unarchive_department(dept_id: UUID, current_user: AdminUser, db: DbSession):
+    result = await db.execute(select(Department).where(Department.id == dept_id))
+    dept = result.scalar_one_or_none()
+    if not dept:
+        raise NotFoundError("Department")
+    dept.archived_at = None
+    await db.flush()
+    await db.refresh(dept)
+    return DepartmentResponse.model_validate(dept)
+
+
+class DepartmentDeleteRequest(BaseModel):
+    code: str
+
+
+@router.delete("/departments/{dept_id}/force", response_model=MessageResponse)
+async def delete_department(dept_id: UUID, body: DepartmentDeleteRequest, current_user: AdminUser, db: DbSession):
+    result = await db.execute(select(Department).where(Department.id == dept_id))
+    dept = result.scalar_one_or_none()
+    if not dept:
+        raise NotFoundError("Department")
+    if dept.code != body.code.strip().upper():
+        raise ValidationError("Department code does not match")
+    dependency_count = (await db.execute(select(func.count()).select_from(Subject).where(Subject.department_id == dept_id))).scalar() or 0
+    if dependency_count > 0:
+        raise ValidationError(
+            f"Cannot delete department: {dependency_count} subject(s) are still linked to it"
+        )
+    await db.delete(dept)
+    await db.flush()
+    return MessageResponse(message="Department permanently deleted")
 
 
 # ── Semesters CRUD ───────────────────────────────────────────

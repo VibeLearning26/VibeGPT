@@ -227,11 +227,22 @@ export const adminApi = {
     fetchApi("/api/v1/admin/dashboard"),
   listDepartments: (): Promise<ApiDepartment[]> => fetchApi("/api/v1/admin/departments"),
 
+  listArchivedDepartments: (): Promise<ApiDepartment[]> => fetchApi("/api/v1/admin/departments/archived"),
+
   createDepartment: (data: { name: string; code: string; description?: string }): Promise<ApiDepartment> =>
     fetchApi("/api/v1/admin/departments", { method: "POST", body: JSON.stringify(data) }),
 
   archiveDepartment: (id: string): Promise<{ message: string }> =>
     fetchApi(`/api/v1/admin/departments/${id}`, { method: "DELETE" }),
+
+  unarchiveDepartment: (id: string): Promise<ApiDepartment> =>
+    fetchApi(`/api/v1/admin/departments/${id}/unarchive`, { method: "POST" }),
+
+  deleteDepartment: (id: string, code: string): Promise<{ message: string }> =>
+    fetchApi(`/api/v1/admin/departments/${id}/force`, {
+      method: "DELETE",
+      body: JSON.stringify({ code }),
+    }),
 
   listSemesters: (): Promise<ApiSemester[]> => fetchApi("/api/v1/admin/semesters"),
 
