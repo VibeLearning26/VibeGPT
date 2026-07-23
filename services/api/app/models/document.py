@@ -15,16 +15,13 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
-    Float,
     ForeignKey,
     Integer,
     String,
     Text,
-    func,
 )
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from pgvector.sqlalchemy import Vector  # noqa: F401 — used in mapped_column()
 
 from app.database.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
 

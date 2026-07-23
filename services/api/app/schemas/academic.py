@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 # ── Department ───────────────────────────────────────────────
 
@@ -155,7 +155,7 @@ class ModuleResponse(BaseModel):
 
 
 class UserCreate(BaseModel):
-    email: str = Field(max_length=320)
+    email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     full_name: str = Field(min_length=2, max_length=255)
     role: str = "student"

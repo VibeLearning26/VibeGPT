@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { adminApi, type ApiDocument } from "@/lib/api";
 
 interface Stats {
   published: number;
@@ -14,42 +15,52 @@ interface Stats {
   lowRated: number;
 }
 
-const STATS: Stats = {
-  published: 86,
-  pending: 4,
-  review: 7,
-  failed: 1,
-  students: 312,
-  questionsToday: 148,
-  avgMs: 940,
-  lowRated: 3,
-};
-
-const RECENT_UPLOADS = [
-  { name: "DBMS — Unit 3 Transactions.pdf", subject: "DBMS", status: "published", when: "12m ago" },
-  { name: "OS Scheduling Slides.pptx", subject: "OS", status: "processing", when: "40m ago" },
-  { name: "Networks Question Bank.docx", subject: "CN", status: "review", when: "2h ago" },
-  { name: "DAA Greedy Notes.pdf", subject: "DAA", status: "published", when: "Yesterday" },
-  { name: "OS Memory Management.pdf", subject: "OS", status: "failed", when: "Yesterday" },
-];
-
 const statusBadge: Record<string, string> = {
   published: "badge-success",
   processing: "badge-warning",
-  review: "badge-neutral",
+  uploaded: "badge-neutral",
+  needs_review: "badge-neutral",
+  ready: "badge-success",
   failed: "badge-error",
 };
 
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [recentUploads, setRecentUploads] = useState<ApiDocument[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
     const t = setTimeout(() => {
-      setStats(STATS);
-      setLoading(false);
-    }, 700);
-    return () => clearTimeout(t);
+      void Promise.all([adminApi.getDashboard(), adminApi.listDocuments()])
+        .then(([dashboard, documents]) => {
+          if (!active) return;
+          setStats({
+            published: dashboard.published_documents,
+            pending: dashboard.pending_documents,
+            review: dashboard.review_documents,
+            failed: dashboard.failed_jobs,
+            students: dashboard.total_students,
+            questionsToday: dashboard.questions_today,
+            avgMs: Math.round(dashboard.avg_processing_ms),
+            lowRated: dashboard.low_rated_answers,
+          });
+          setRecentUploads(documents.slice(0, 5));
+          setError(null);
+        })
+        .catch((loadError) => {
+          if (!active) return;
+          setError(loadError instanceof Error ? loadError.message : "Failed to load dashboard");
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 0);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
   }, []);
 
   const cards = [
@@ -74,6 +85,12 @@ export default function AdminDashboard() {
           <span>＋</span> Upload material
         </Link>
       </div>
+
+      {error && (
+        <div className="panel p-4 mb-5 text-sm text-[var(--color-err)]">
+          Unable to load dashboard: {error}
+        </div>
+      )}
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-9">
@@ -115,19 +132,26 @@ export default function AdminDashboard() {
               ? Array.from({ length: 4 }).map((_, i) => (
                   <div key={i} className="skeleton h-12 w-full" />
                 ))
-              : RECENT_UPLOADS.map((u) => (
+              : recentUploads.map((u) => (
                   <div
-                    key={u.name}
+                    key={u.id}
                     className="flex items-center gap-3 px-3.5 py-3 rounded-xl bg-panel-2 border border-line-soft"
                   >
                     <span className="text-lg">📎</span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-medium truncate">{u.name}</p>
-                      <p className="text-[11px] text-faint">{u.subject} · {u.when}</p>
+                      <p className="text-[13px] font-medium truncate">{u.document_name}</p>
+                      <p className="text-[11px] text-faint">
+                        {new Date(u.created_at).toLocaleString()}
+                      </p>
                     </div>
-                    <span className={`badge ${statusBadge[u.status]}`}>{u.status}</span>
+                    <span className={`badge ${statusBadge[u.status] ?? "badge-neutral"}`}>
+                      {u.status.replace("_", " ")}
+                    </span>
                   </div>
                 ))}
+            {!loading && recentUploads.length === 0 && (
+              <p className="text-sm text-faint py-6 text-center">No documents uploaded yet.</p>
+            )}
           </div>
         </div>
 

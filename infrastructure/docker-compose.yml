@@ -30,10 +30,38 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: vibegpt-ollama-init
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/ollama"]
+    command: ["pull", "${OLLAMA_MODEL:-llama3.2:3b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
+  # ── Next.js Web App ───────────────────────────────────────
+  web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
+    container_name: vibegpt-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   # ── FastAPI Backend ────────────────────────────────────────
@@ -46,6 +74,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vibegpt}:${POSTGRES_PASSWORD:-vibegpt_dev_password}@postgres:5432/${POSTGRES_DB:-vibegpt}
       OLLAMA_BASE_URL: http://ollama:11434
+      PYTHONPATH: /app
     ports:
       - "8000:8000"
     volumes:
@@ -54,13 +83,36 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 15s
       timeout: 5s
-      retries: 3
+      retries: 10
+      start_period: 90s
     restart: unless-stopped
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  # ── Document Worker ────────────────────────────────────────
+  worker:
+    build:
+      context: ../services/api
+      dockerfile: Dockerfile
+    container_name: vibegpt-worker
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vibegpt}:${POSTGRES_PASSWORD:-vibegpt_dev_password}@postgres:5432/${POSTGRES_DB:-vibegpt}
+      OLLAMA_BASE_URL: http://ollama:11434
+      PYTHONPATH: /app
+    volumes:
+      - ../services/api:/app
+      - uploads:/app/uploads
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    command: python -m app.workers.document_worker
 
 volumes:
   pgdata:

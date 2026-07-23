@@ -25,6 +25,8 @@ services:
     build:
       context: ../apps/web
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: /api/v1
     container_name: vibegpt-web
     environment:
       NEXT_PUBLIC_API_URL: /api/v1
@@ -52,12 +54,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 15s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     networks:
       - vibegpt
 
@@ -75,7 +80,7 @@ services:
     volumes:
       - uploads:/app/uploads
     depends_on:
-      postgres:
+      api:
         condition: service_healthy
     restart: unless-stopped
     command: python -m app.workers.document_worker
@@ -108,11 +113,25 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
       retries: 3
     restart: unless-stopped
+    networks:
+      - vibegpt
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: vibegpt-ollama-init
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/ollama"]
+    command: ["pull", "${OLLAMA_MODEL:-llama3.2:3b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
     networks:
       - vibegpt
 

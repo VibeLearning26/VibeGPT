@@ -11,11 +11,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 # Import all models so they are registered with SQLAlchemy
 import app.models  # noqa: F401
 from app.api.v1.router import api_router
 from app.core.config import get_settings
+from app.core.rate_limit import limiter
 from app.database.init_db import init_db
 from app.database.session import async_session_factory
 
@@ -70,6 +73,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     # Include API routes
     app.include_router(api_router)

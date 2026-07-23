@@ -43,11 +43,18 @@ async def readiness_check(db: DbSession):
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{settings.OLLAMA_BASE_URL}/api/tags")
-            ollama_ok = resp.status_code == 200
+            if resp.status_code == 200:
+                models = resp.json().get("models", [])
+                configured = settings.OLLAMA_MODEL
+                ollama_ok = any(
+                    model.get("name") == configured
+                    or model.get("model") == configured
+                    for model in models
+                )
     except Exception:
         pass
 
-    status = "ready" if db_ok else "degraded"
+    status = "ready" if db_ok and ollama_ok else "degraded"
     return ReadyResponse(status=status, database=db_ok, ollama=ollama_ok)
 
 

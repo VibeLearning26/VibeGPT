@@ -28,6 +28,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "app/models/*.py" = ["F821"]  # SQLAlchemy forward-refs are flagged as undefined by linters
+"app/api/v1/endpoints/*.py" = ["B008"]  # FastAPI uses File/Form/Depends in signatures
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -5,6 +5,7 @@ VibeGPT API – Question & Answer Schemas
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -13,7 +14,7 @@ from pydantic import BaseModel, Field
 class AskQuestionRequest(BaseModel):
     subject_id: UUID
     module_id: UUID | None = None
-    marks: int = Field(ge=1, le=20)
+    marks: Literal[2, 5, 10]
     question: str = Field(min_length=3, max_length=2000)
 
 
