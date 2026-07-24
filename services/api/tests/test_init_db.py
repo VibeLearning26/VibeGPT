@@ -2,7 +2,11 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from app.database.init_db import DEFAULT_DEPARTMENTS, create_default_departments, create_default_semesters
+from app.database.init_db import (
+    DEFAULT_DEPARTMENTS,
+    create_default_departments,
+    create_default_semesters,
+)
 from app.models.academic import Department, Semester
 
 

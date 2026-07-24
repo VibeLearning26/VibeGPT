@@ -8,13 +8,13 @@ Dashboard, feedback, audit logs.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import logging
 import uuid
 import zipfile
 from datetime import UTC, datetime
-from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
@@ -685,10 +685,8 @@ async def upload_document(
         await db.flush()
     except Exception:
         await db.rollback()
-        try:
+        with contextlib.suppress(Exception):
             await storage.delete(stored_path_str)
-        except Exception:
-            pass
         raise
 
     # Commit now so the background task (separate session) can see the rows.
