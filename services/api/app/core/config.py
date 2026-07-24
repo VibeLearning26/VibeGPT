@@ -65,7 +65,13 @@ class Settings(BaseSettings):
     SUPABASE_STORAGE_BUCKET: str = "documents"
 
     # ── CORS ─────────────────────────────────────────────────
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
+    CORS_ORIGINS: str = (
+        "http://localhost:3000,"
+        "http://localhost:3001,"
+        "http://127.0.0.1:3000,"
+        "http://127.0.0.1:3001,"
+        "http://localhost:8000"
+    )
 
     # ── Initial Admin ────────────────────────────────────────
     INITIAL_ADMIN_EMAIL: str = "admin@vibegpt.local"
