@@ -300,6 +300,9 @@ export const adminApi = {
   publishDocument: (documentId: string): Promise<{ message: string }> =>
     fetchApi(`/api/v1/admin/documents/${documentId}/publish`, { method: "POST" }),
 
+  deleteDocument: (documentId: string): Promise<{ message: string }> =>
+    fetchApi(`/api/v1/admin/documents/${documentId}`, { method: "DELETE" }),
+
   uploadDocument: (params: {
     file: File;
     subject_id: string;

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import logging
 import uuid
 import zipfile
 from datetime import UTC, datetime
@@ -18,7 +19,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.core.config import get_settings
 from app.core.dependencies import AdminUser, DbSession
@@ -34,12 +35,14 @@ from app.models.academic import (
 from app.models.answer_rule import AnswerRule
 from app.models.document import (
     Document,
+    DocumentChunk,
     DocumentProcessingJob,
     DocumentStatus,
+    DocumentVersion,
     ProcessingJobStatus,
     SourceType,
 )
-from app.models.question import Feedback, QuestionLog
+from app.models.question import Feedback, QuestionLog, QuestionSource
 from app.models.system import AuditLog, SystemSetting
 from app.models.user import User, UserRole
 from app.schemas.academic import (
@@ -65,6 +68,7 @@ from app.schemas.document import DocumentUploadResponse
 from app.storage import get_document_storage
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+logger = logging.getLogger(__name__)
 
 
 # ── Dashboard ────────────────────────────────────────────────
@@ -758,6 +762,43 @@ async def archive_document(document_id: UUID, current_user: AdminUser, db: DbSes
     doc.archived_at = datetime.now(UTC)
     await db.flush()
     return MessageResponse(message="Document archived")
+
+
+@router.delete("/documents/{document_id}", response_model=MessageResponse)
+async def delete_document(document_id: UUID, current_user: AdminUser, db: DbSession):
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise NotFoundError("Document")
+
+    # QuestionSource references documents/chunks via non-cascading FKs.
+    chunk_ids = select(DocumentChunk.id).where(DocumentChunk.document_id == document_id)
+    await db.execute(
+        delete(QuestionSource).where(
+            (QuestionSource.document_id == document_id)
+            | (QuestionSource.chunk_id.in_(chunk_ids))
+        )
+    )
+
+    # Delete child rows with bulk DELETE rather than ORM cascade. The embedding
+    # column is stored as JSON, which pgvector cannot deserialize on lazy-load,
+    # so loading the chunks to cascade-delete them would raise. Bulk deletes touch
+    # only the rows we need and never read the embedding values back.
+    await db.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document_id))
+    await db.execute(delete(DocumentVersion).where(DocumentVersion.document_id == document_id))
+    await db.execute(
+        delete(DocumentProcessingJob).where(DocumentProcessingJob.document_id == document_id)
+    )
+
+    # Remove the physical file (best-effort; don't block deletion if it's gone).
+    try:
+        await get_document_storage().delete(doc.storage_path)
+    except Exception:
+        logger.warning("Could not delete stored file for document %s", document_id)
+
+    await db.delete(doc)
+    await db.flush()
+    return MessageResponse(message="Document deleted")
 
 
 # ── Feedback ─────────────────────────────────────────────────

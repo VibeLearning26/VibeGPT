@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { BookOpen } from "reicon-react";
 import { studentApi, type ApiModule, type ApiSubject } from "@/lib/api";
+import { Dropdown } from "@/components/Dropdown";
 
 interface SubjectView {
   id: string;
@@ -94,18 +95,15 @@ export default function SubjectsPage() {
             placeholder="Search subjects or modules"
             aria-label="Search subjects or modules"
           />
-          <select
-            className="input cursor-pointer"
+          <Dropdown
+            ariaLabel="Filter by department"
             value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-          >
-            <option value="all">All departments</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
+            onChange={setDepartment}
+            options={[
+              { value: "all", label: "All departments" },
+              ...departments.map((d) => ({ value: d, label: d })),
+            ]}
+          />
         </div>
 
         {error && (

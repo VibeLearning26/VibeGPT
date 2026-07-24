@@ -3,6 +3,11 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /build
 COPY requirements.txt .
+# Install CPU-only torch first. The embedding worker runs on CPU, so the
+# default CUDA torch (~5GB of GPU libraries) is unnecessary bloat. PYTHONPATH
+# lets the next pip call see torch is already satisfied and skip the CUDA build.
+ENV PYTHONPATH=/install/lib/python3.11/site-packages
+RUN pip install --default-timeout=1000 --no-cache-dir --prefix=/install torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --default-timeout=1000 --no-cache-dir --prefix=/install -r requirements.txt
 
 # ── Runtime stage ────────────────────────────────────────────

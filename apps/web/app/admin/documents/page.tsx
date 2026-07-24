@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DocumentText, BookOpen, Refresh, Upload } from "reicon-react";
+import { Dropdown } from "@/components/Dropdown";
 import {
   adminApi,
   inferSourceType,
@@ -175,18 +176,15 @@ export default function DocumentsPage() {
             <label className="field-label" htmlFor="semester-select">
               Semester
             </label>
-            <select
-              id="semester-select"
+            <Dropdown
+              ariaLabel="Semester"
               value={semesterId}
-              onChange={(e) => setSemesterId(e.target.value)}
-              className="input cursor-pointer"
-            >
-              {semesters.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name || `Semester ${s.number}`}
-                </option>
-              ))}
-            </select>
+              onChange={setSemesterId}
+              options={semesters.map((s) => ({
+                value: s.id,
+                label: s.name || `Semester ${s.number}`,
+              }))}
+            />
           </div>
 
           {/* Subjects in this semester — one upload card each */}
@@ -215,6 +213,7 @@ function SubjectUploadCard({ subject, demo }: { subject: ApiSubject; demo: boole
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [docs, setDocs] = useState<ApiDocument[]>([]);
   const [showDocs, setShowDocs] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -349,6 +348,17 @@ function SubjectUploadCard({ subject, demo }: { subject: ApiSubject; demo: boole
     }
   };
 
+  const removeDocument = async (documentId: string, name: string) => {
+    if (!confirm(`Delete "${name}"? This removes the file and its indexed chunks permanently.`)) return;
+    setDocError(null);
+    try {
+      await adminApi.deleteDocument(documentId);
+      await refreshDocs();
+    } catch (err) {
+      setDocError(err instanceof Error ? err.message : "Unable to delete document");
+    }
+  };
+
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
@@ -379,36 +389,26 @@ function SubjectUploadCard({ subject, demo }: { subject: ApiSubject; demo: boole
             <label className="field-label" htmlFor={`module-${subject.id}`}>
               Module
             </label>
-            <select
-              id={`module-${subject.id}`}
+            <Dropdown
+              ariaLabel="Module"
               value={moduleId}
-              onChange={(e) => setModuleId(e.target.value)}
-              className="input cursor-pointer !py-1.5 text-[13px]"
-            >
-              <option value="">Whole subject</option>
-              {modules.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
+              onChange={setModuleId}
+              options={[
+                { value: "", label: "Whole subject" },
+                ...modules.map((m) => ({ value: m.id, label: m.name })),
+              ]}
+            />
           </div>
           <div className="min-w-[160px]">
             <label className="field-label" htmlFor={`category-${subject.id}`}>
               Category
             </label>
-            <select
-              id={`category-${subject.id}`}
+            <Dropdown
+              ariaLabel="Category"
               value={category}
-              onChange={(e) => setCategory(e.target.value as SourceTypeValue | "auto")}
-              className="input cursor-pointer !py-1.5 text-[13px]"
-            >
-              {CATEGORY_OPTIONS.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setCategory(v as SourceTypeValue | "auto")}
+              options={CATEGORY_OPTIONS.map((c) => ({ value: c.value, label: c.label }))}
+            />
           </div>
         </div>
       </div>
@@ -504,6 +504,11 @@ function SubjectUploadCard({ subject, demo }: { subject: ApiSubject; demo: boole
           </button>
           {showDocs && (
             <div className="mt-2 space-y-2">
+              {docError && (
+                <p className="text-err text-xs" role="alert">
+                  {docError}
+                </p>
+              )}
               {docs.map((d) => {
                 const badge = STATUS_BADGE[d.status] ?? STATUS_BADGE.uploaded;
                 return (
@@ -530,6 +535,13 @@ function SubjectUploadCard({ subject, demo }: { subject: ApiSubject; demo: boole
                         Publish
                       </button>
                     )}
+                    <button
+                      onClick={() => removeDocument(d.id, d.document_name)}
+                      className="btn-ghost text-xs text-err hover:bg-err/10"
+                      title="Delete file and its indexed chunks"
+                    >
+                      Delete
+                    </button>
                   </div>
                 );
               })}

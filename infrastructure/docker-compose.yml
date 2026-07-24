@@ -109,7 +109,7 @@ services:
       - ../services/api:/app
       - uploads:/app/uploads
     depends_on:
-      api:
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     command: python -m app.workers.document_worker

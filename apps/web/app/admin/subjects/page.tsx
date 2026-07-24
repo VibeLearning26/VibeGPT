@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Plus, BookOpen, Check } from "reicon-react";
 import { adminApi, type ApiSubject, type ApiSemester, type ApiDepartment, type ApiModule } from "@/lib/api";
+import { Dropdown } from "@/components/Dropdown";
 
 const semLabel = (sem: ApiSemester) => `${sem.name}`;
 
@@ -229,32 +230,26 @@ export default function AdminSubjectsPage() {
             </div>
             <div>
               <label className="field-label">Department</label>
-              <select
-                className="input cursor-pointer"
+              <Dropdown
+                ariaLabel="Department"
                 value={newDepartmentId}
-                onChange={(e) => setNewDepartmentId(e.target.value)}
-              >
-                <option value="">Select department</option>
-                {departments.map((department) => (
-                  <option key={department.id} value={department.id}>
-                    {department.code} - {department.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setNewDepartmentId}
+                placeholder="Select department"
+                options={departments.map((department) => ({
+                  value: department.id,
+                  label: `${department.code} - ${department.name}`,
+                }))}
+              />
             </div>
             <div>
               <label className="field-label">Semester</label>
-              <select
-                className="input cursor-pointer"
+              <Dropdown
+                ariaLabel="Semester"
                 value={newSemesterId}
-                onChange={(e) => setNewSemesterId(e.target.value)}
-              >
-                {semesters.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {semLabel(s)}
-                  </option>
-                ))}
-              </select>
+                onChange={setNewSemesterId}
+                placeholder="Select semester"
+                options={semesters.map((s) => ({ value: s.id, label: semLabel(s) }))}
+              />
             </div>
           </div>
           {departments.length === 0 && (

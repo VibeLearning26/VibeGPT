@@ -14,7 +14,7 @@ import {
 } from "reicon-react";
 import {
   MARKS_OPTIONS,
-  ACTIVE_SEMESTERS,
+  SEMESTER_OPTIONS,
   routeQuestion,
   generateMockAnswer,
   simplifyAnswer,
@@ -22,6 +22,7 @@ import {
   type RouteResult,
 } from "@/lib/mockData";
 import { askQuestion, fetchApi, hasRealSession, type ApiAnswerResponse } from "@/lib/api";
+import { Dropdown } from "@/components/Dropdown";
 
 interface RealSubject {
   id: string;
@@ -102,7 +103,7 @@ const semLabel = (sem: string) => `Semester ${sem.replace("S", "")}`;
 export default function ChatPage() {
   const [marks, setMarks] = useState(5);
   const [semester, setSemester] = useState(
-    ACTIVE_SEMESTERS.includes("S5") ? "S5" : ACTIVE_SEMESTERS[0],
+    SEMESTER_OPTIONS.includes("S5") ? "S5" : SEMESTER_OPTIONS[0],
   );
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -385,36 +386,28 @@ export default function ChatPage() {
               <span className="text-[11px] text-faint mr-1">
                 {realSubjects.length > 0 ? "Subject" : "Semester"}
               </span>
-              <div className="relative">
-                {realSubjects.length > 0 ? (
-                  <select
-                    value={selectedSubjectId}
-                    onChange={(e) => setSelectedSubjectId(e.target.value)}
-                    className="chip appearance-none pr-7 cursor-pointer"
-                    aria-label="Subject"
-                  >
-                    {realSubjects.map((subject) => (
-                      <option key={subject.id} value={subject.id}>
-                        {subject.code} · {subject.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <select
-                    value={semester}
-                    onChange={(e) => setSemester(e.target.value)}
-                    className="chip appearance-none pr-7 cursor-pointer"
-                    aria-label="Semester"
-                  >
-                    {ACTIVE_SEMESTERS.map((s) => (
-                      <option key={s} value={s}>
-                        {semLabel(s)}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-faint text-[10px]">▾</span>
-              </div>
+              {realSubjects.length > 0 ? (
+                <Dropdown
+                  variant="chip"
+                  direction="up"
+                  ariaLabel="Subject"
+                  value={selectedSubjectId}
+                  onChange={setSelectedSubjectId}
+                  options={realSubjects.map((subject) => ({
+                    value: subject.id,
+                    label: `${subject.code} · ${subject.name}`,
+                  }))}
+                />
+              ) : (
+                <Dropdown
+                  variant="chip"
+                  direction="up"
+                  ariaLabel="Semester"
+                  value={semester}
+                  onChange={setSemester}
+                  options={SEMESTER_OPTIONS.map((s) => ({ value: s, label: semLabel(s) }))}
+                />
+              )}
             </div>
 
             {/* Marks */}

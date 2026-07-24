@@ -1,229 +1,71 @@
-# VibeGPT - J1-J4 Testing Guide
+# VibeGPT — How to Run the Website
 
-## Overview
-This guide covers testing the document upload, processing, worker, and admin UI features (J1-J4).
+## Prerequisites
+- Docker Desktop installed and running
+- Python 3.11–3.13 (backend)
+- Node.js (frontend)
 
 ---
 
-## Prerequisites
+## 1. Start the database + LLM (Docker)
 
-### Services Running
 ```powershell
-# Terminal 1: API Server (port 8000)
-cd D:\CSE\Projects\Group\VibeGPT\services\api
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+cd infrastructure
+docker compose --env-file ../.env up postgres ollama -d
+```
 
-# Terminal 2: Document Worker (keep running)
-cd D:\CSE\Projects\Group\VibeGPT\services\api
+Wait until both containers are healthy (`docker ps`).
+
+First time only — pull the LLM model:
+```powershell
+docker exec vibegpt-ollama ollama pull llama3.2:3b
+```
+
+---
+
+## 2. Start the backend API (port 8000)
+
+```powershell
+cd services/api
+.venv\Scripts\activate
+uvicorn app.main:app --port 8000
+```
+
+Leave this running.
+
+---
+
+## 3. Start the document worker
+
+This indexes uploaded files. It must run alongside the API.
+
+```powershell
+cd services/api
+.venv\Scripts\activate
 python -m app.workers.document_worker
+```
 
-# Terminal 3: Frontend (port 3000)
-cd D:\CSE\Projects\Group\VibeGPT\apps\web
+Leave this running.
+
+---
+
+## 4. Start the frontend (port 3000)
+
+```powershell
+cd apps/web
 npm run dev
 ```
 
 ---
 
-## Test Accounts
+## 5. Open the app
 
-| Role | Email | Password | Redirect |
-|------|-------|----------|----------|
-| Admin | admin@vibegpt.com | change-this-admin-password | /admin/documents |
-| Student | student@vibegpt.com | student123 | /student/chat |
+Go to http://localhost:3000
 
----
-
-## API Endpoint Tests
-
-### 1. Authentication
-```bash
-# Admin login
-curl -X POST http://localhost:8000/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@vibegpt.com","password":"change-this-admin-password"}'
-
-# Student login
-curl -X POST http://localhost:8000/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"student@vibegpt.com","password":"student123"}'
-```
-
-Expected: 200 with `access_token`, `token_type: "bearer"`, `expires_in: 1800`, `role`
-
----
-
-### 2. Admin Endpoints (requires admin token)
-
-```bash
-TOKEN="your_admin_token_here"
-HDR="Authorization: Bearer $TOKEN"
-
-# Semesters (should return 8)
-curl -H "$HDR" http://localhost:8000/api/v1/admin/semesters
-
-# Subjects by semester
-curl -H "$HDR" "http://localhost:8000/api/v1/admin/subjects?semester_id=20da3b12-2062-4bcf-8bef-ab945398fcc1"
-
-# Modules for subject
-curl -H "$HDR" "http://localhost:8000/api/v1/admin/modules?subject_id=1ff740f4-d809-4e6a-896a-08b6c473e3be"
-
-# Document list (with filters)
-curl -H "$HDR" "http://localhost:8000/api/v1/admin/documents?status=ready&subject_id=1ff740f4-d809-4e6a-896a-08b6c473e3be"
-
-# Document detail
-curl -H "$HDR" "http://localhost:8000/api/v1/admin/documents/{doc_id}"
-
-# Job status
-curl -H "$HDR" "http://localhost:8000/api/v1/admin/documents/{doc_id}/job"
-
-# Retry failed document
-curl -X POST -H "$HDR" "http://localhost:8000/api/v1/admin/documents/{doc_id}/retry"
-
-# Publish document
-curl -X POST -H "$HDR" "http://localhost:8000/api/v1/admin/documents/{doc_id}/publish"
-
-# Archive document
-curl -X POST -H "$HDR" "http://localhost:8000/api/v1/admin/documents/{doc_id}/archive"
-```
-
----
-
-### 3. Document Upload Tests
-
-```bash
-TOKEN="your_admin_token_here"
-HDR="Authorization: Bearer $TOKEN"
-
-# Create test PDF
-python -c "
-import fitz
-doc = fitz.open()
-page = doc.new_page()
-page.insert_text((72, 72), 'Test content')
-doc.save('test.pdf')
-doc.close()
-"
-
-# Upload with explicit source_type
-curl -X POST http://localhost:8000/api/v1/admin/documents/upload \
-  -H "$HDR" \
-  -F "file=@test.pdf" \
-  -F "subject_id=1ff740f4-d809-4e6a-896a-08b6c473e3be" \
-  -F "source_type=pdf_notes"
-
-# Upload with auto-detection (source_type=other)
-curl -X POST http://localhost:8000/api/v1/admin/documents/upload \
-  -H "$HDR" \
-  -F "file=@test.pdf" \
-  -F "subject_id=1ff740f4-d809-4e6a-896a-08b6c473e3be" \
-  -F "source_type=other"
-```
-
-**Expected responses:**
-- 201: `{id, document_name, status: "processing", source_type, file_size, message}`
-- 409: `{"detail": "Document already exists"}` (duplicate)
-- 413: `{"detail": "File exceeds maximum size"}` (>50MB)
-- 400: `{"detail": "Unsupported file type: txt"}` (invalid type)
-- 404: `{"detail": "Subject not found"}` (invalid subject_id)
-
----
-
-### 4. Document Processing Verification
-
-After upload, poll job status:
-```bash
-curl -H "$HDR" "http://localhost:8000/api/v1/admin/documents/{doc_id}/job"
-```
-
-Expected progression:
-```
-pending → running → completed
-```
-Final document status: `ready` with `total_chunks > 0`
-
----
-
-### 5. Validation Tests
-
-| Test | Command | Expected |
-|------|---------|----------|
-| Duplicate upload | Upload same file twice | 409 Conflict |
-| Oversized file (>50MB) | `dd if=/dev/zero of=large.pdf bs=1M count=51` | 413 Payload Too Large |
-| Invalid type (.txt) | Upload .txt file | 400 Unsupported file type |
-| Missing subject | Use invalid UUID | 404 Subject not found |
-| Missing module | Use invalid module UUID | 404 Module not found |
-| Retry failed | POST /retry on failed doc | 200, job → pending |
-| Publish ready doc | POST /publish on ready doc | 200, status=published |
-| Archive published | POST /archive on published doc | 200, status=archived |
-
----
-
-## Frontend Tests (Browser)
-
-1. Open http://localhost:3000/login
-2. Login as admin → redirected to `/admin/documents`
-3. Verify:
-   - Semester dropdown (S1-S8)
-   - Subject cards with module dropdowns
-   - Drag-drop upload zone
-   - Upload queue with progress
-   - Document list with status badges
-   - Job polling (status updates every 5s)
-   - Retry button on failed docs
-   - Publish/Archive buttons
-
-4. Login as student → redirected to `/student/chat`
-5. Verify subjects/modules load based on assigned department/semester
-
----
-
-## Database Verification
-
-```bash
-# Check documents
-psql -U postgres -d vibegpt -c "SELECT id, document_name, status, source_type, total_chunks FROM documents ORDER BY created_at DESC LIMIT 5;"
-
-# Check chunks
-psql -U postgres -d vibegpt -c "SELECT document_id, chunk_index, page_number, slide_number, sheet_name, token_count FROM document_chunks ORDER BY document_id, chunk_index LIMIT 10;"
-
-# Check jobs
-psql -U postgres -d vibegpt -c "SELECT id, document_id, status, retry_count, chunks_created, error_message FROM document_processing_jobs ORDER BY created_at DESC LIMIT 5;"
-
-# Check student permissions
-psql -U postgres -d vibegpt -c "SELECT user_id, subject_id, is_active FROM student_subject_permissions;"
-```
-
----
-
-## Worker Verification
-
-Terminal running worker should show:
-```
-Document worker started (poll_interval=10s, max_retries=3)
-_claim_job: found job = <uuid>
-Processing job <uuid> for document <uuid>
-Job <uuid> completed: N chunks created
-```
-
-Or on failure:
-```
-Job <uuid> failed (retry 1/3): <error>
-Job <uuid> failed permanently after 3 retries: <error>
-```
-
----
-
-## Expected File Structure (uploads/)
-
-```
-services/api/uploads/
-├── a1b2c3d4e5f6.pdf      # UUID + original extension
-├── f1e2d3c4b5a6.pptx
-├── 9876543210ab.docx
-└── abcdef123456.xlsx
-```
-
-Files named with UUID (12 chars) + original extension.
+| Role    | Email                 | Password  |
+|---------|-----------------------|-----------|
+| Admin   | admin@vibegpt.local   | admin123  |
+| Student | student@vibegpt.local | student123 |
 
 ---
 
@@ -231,100 +73,8 @@ Files named with UUID (12 chars) + original extension.
 
 | Issue | Fix |
 |-------|-----|
-| API Connection refused | Start API: `python -m uvicorn app.main:app --port 8000` |
-| Worker not processing | Start worker: `python -m app.workers.document_worker` |
-| Frontend 404 on routes | Restart Next.js: `npm run dev` (port 3000/3001) |
-| 401 Unauthorized | Re-login, check token in sessionStorage |
-| 403 Forbidden | Check user role (admin vs student) |
-| Job stuck in running | Check worker logs, restart worker |
-| 0 chunks created | Check file content extractable, worker running |
-
----
-
-## Quick Smoke Test (One-Liner)
-
-```bash
-cd D:\CSE\Projects\Group\VibeGPT\services\api
-python -c "
-import requests, fitz, time
-r = requests.post('http://localhost:8000/api/v1/auth/login', json={'email':'admin@vibegpt.com','password':'change-this-admin-password'})
-token = r.json()['access_token']
-h = {'Authorization': f'Bearer {token}'}
-doc = fitz.open(); doc.new_page().insert_text((72,72),'test'); doc.save('t.pdf')
-r = requests.post('http://localhost:8000/api/v1/admin/documents/upload', headers={'Authorization':'Bearer '+token}, files={'file':('t.pdf',open('t.pdf','rb'),'application/pdf')}, data={'subject_id':'1ff740f4-d809-4e6a-896a-08b6c473e3be','source_type':'other'})
-doc_id = r.json()['id']
-for _ in range(6):
-    time.sleep(5); j = requests.get(f'http://localhost:8000/api/v1/admin/documents/{doc_id}/job', headers={'Authorization':'Bearer '+token}).json(); print(j['status'], j['chunks_created'])
-    if j['status'] in ['completed','failed']: break
-print('Final:', requests.get(f'http://localhost:8000/api/v1/admin/documents/{doc_id}', headers={'Authorization':'Bearer '+token}).json()['status'])
-"
-```
-
-Expected output:
-```
-running 0
-running 0
-running 0
-completed 1
-Final: ready
-```
-
----
-
-## Git Status
-
-```bash
-git status --short
-# Should show only uncommitted temp files (add_permission.py)
-# All J1-J4 code committed in 722a592
-```
-
----
-
-## Files Changed (J1-J4)
-
-### Backend (services/api/)
-- `app/document_processing/parsers.py` - PDF/PPTX/DOCX/XLSX parsers
-- `app/document_processing/chunker.py` - Semantic chunker
-- `app/document_processing/service.py` - Processing pipeline
-- `app/document_processing/__init__.py`
-- `app/services/embedding.py` - Mock embedding service
-- `app/workers/document_worker.py` - Background worker
-- `app/api/v1/endpoints/admin.py` - Upload + job endpoints
-- `app/api/v1/endpoints/auth.py` - Role in login response
-- `app/models/document.py` - Embedding column
-- `app/models/user.py` - Fixed FK
-- `app/schemas/auth.py` - role field
-- `app/schemas/document.py` - Extended schemas
-- `alembic/versions/30967e1d5b0e_*.py` - Migration
-
-### Frontend (apps/web/)
-- `app/admin/documents/page.tsx` - Real API integration
-- `app/login/page.tsx` - Role-based redirect
-- `lib/api.ts` - API helpers
-- `package-lock.json` - ogl dependency
-
-### LLM Placeholders
-- `app/services/llm/__init__.py`
-- `app/services/llm/ollama.py`
-- `app/services/llm/openrouter.py`
-
----
-
-## Sign-Off Checklist
-
-- [ ] API starts on port 8000
-- [ ] Worker processes jobs
-- [ ] Frontend loads on port 3000
-- [ ] Admin login → upload → job completes
-- [ ] Student login → chat page loads
-- [ ] All 4 file types process correctly
-- [ ] Duplicate detection works
-- [ ] Retry button works
-- [ ] Publish/Archive work
-- [ ] Git commit clean (only add_permission.py untracked)
-
----
-
-**Last Updated:** 2026-07-19
-**Commit:** 722a592 (J1-J4 complete)
+| Site won't load | Make sure all 4 steps above are running |
+| Login fails | Confirm the API (step 2) is running on port 8000 |
+| Uploads stuck at "processing" | Start the document worker (step 3) |
+| Docker containers not starting | Open Docker Desktop; check `docker ps` |
+| AI answers not working | Pull the model in step 1; confirm Ollama container is up |

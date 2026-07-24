@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Check } from "reicon-react";
+import { Dropdown } from "@/components/Dropdown";
 
 interface Rule {
   marks: number;
@@ -185,15 +186,12 @@ export default function AnswerRulesPage() {
 
           <div>
             <label className="field-label">Writing style</label>
-            <select
-              className="input cursor-pointer"
+            <Dropdown
+              ariaLabel="Writing style"
               value={rule.style}
-              onChange={(e) => update({ style: e.target.value })}
-            >
-              {STYLES.map((s) => (
-                <option key={s} value={s}>{s.replace("_", " ")}</option>
-              ))}
-            </select>
+              onChange={(v) => update({ style: v })}
+              options={STYLES.map((s) => ({ value: s, label: s.replace(/_/g, " ") }))}
+            />
           </div>
 
           <div className="space-y-2 pt-1">
