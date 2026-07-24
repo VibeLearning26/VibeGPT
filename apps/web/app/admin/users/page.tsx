@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Users, Shield } from "reicon-react";
 import { adminApi, type ApiUser } from "@/lib/api";
 
 export default function UsersPage() {
@@ -53,13 +54,13 @@ export default function UsersPage() {
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-3.5 mb-6">
         {[
-          { label: "Students", value: totalStudents, icon: "👥" },
-          { label: "Admins", value: totalAdmins, icon: "🛡️" },
-          { label: "Active now", value: activeCount, icon: "🟢" },
+          { label: "Students", value: totalStudents, icon: <Users size={18} className="text-brand-accent" /> },
+          { label: "Admins", value: totalAdmins, icon: <Shield size={18} className="text-brand-accent" /> },
+          { label: "Active now", value: activeCount, icon: <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" /> },
         ].map((s) => (
           <div key={s.label} className="card p-4">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-lg">{s.icon}</span>
+              <span className="flex items-center">{s.icon}</span>
               <span className="text-xs text-faint">{s.label}</span>
             </div>
             {loading ? (

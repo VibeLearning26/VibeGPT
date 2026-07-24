@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Star, Bell, Warning, Check } from "reicon-react";
 
 interface FeedbackItem {
   id: string;
@@ -86,12 +87,12 @@ function StarRating({ rating }: { rating: number }) {
   return (
     <div className="flex gap-0.5">
       {[1, 2, 3, 4, 5].map((star) => (
-        <span
+        <Star
           key={star}
-          className={`text-xs ${star <= rating ? "text-[#ff2a2a]" : "text-[#2a2a2a]"}`}
-        >
-          ★
-        </span>
+          size={13}
+          weight="Filled"
+          color={star <= rating ? "#ff2a2a" : "#3d3d42"}
+        />
       ))}
     </div>
   );
@@ -134,13 +135,13 @@ export default function FeedbackPage() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3.5 mb-6">
         {[
-          { label: "Avg rating", value: avgRating, icon: "⭐" },
-          { label: "New feedback", value: newCount, icon: "🔔" },
-          { label: "Low-rated", value: lowRated, icon: "⚠️", accent: true },
+          { label: "Avg rating", value: avgRating, icon: <Star size={18} className="text-brand-accent" /> },
+          { label: "New feedback", value: newCount, icon: <Bell size={18} className="text-brand-accent" /> },
+          { label: "Low-rated", value: lowRated, icon: <Warning size={18} className="text-brand-accent" />, accent: true },
         ].map((s) => (
           <div key={s.label} className="card p-4">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-lg">{s.icon}</span>
+              <span className="flex items-center">{s.icon}</span>
               <span className="text-xs text-faint">{s.label}</span>
             </div>
             {loading ? (
@@ -201,9 +202,9 @@ export default function FeedbackPage() {
                     {f.status !== "resolved" && (
                       <button
                         onClick={() => updateStatus(f.id, "resolved")}
-                        className="btn-ghost"
+                        className="btn-ghost inline-flex items-center gap-1.5"
                       >
-                        ✓ Resolve
+                        <Check size={14} /> Resolve
                       </button>
                     )}
                   </div>

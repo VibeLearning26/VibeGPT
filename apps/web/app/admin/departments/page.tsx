@@ -32,7 +32,7 @@ export default function AdminDepartmentsPage() {
           setError(err instanceof Error ? err.message : "Unable to load archived departments");
         });
     }
-  }, [showArchived]);
+  }, [showArchived, archivedDepartments.length]);
 
   const addDepartment = async () => {
     if (!name.trim() || !code.trim()) return;

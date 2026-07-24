@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DocumentText, BookOpen, Refresh, Upload } from "reicon-react";
 import {
   adminApi,
   inferSourceType,
@@ -24,11 +25,11 @@ interface Upload {
   documentId?: string;
 }
 
-const EXT_ICON: Record<string, string> = {
-  pdf: "📕",
-  pptx: "📙",
-  docx: "📘",
-  xlsx: "📗",
+const EXT_COLOR: Record<string, string> = {
+  pdf: "#ff6b6b",
+  pptx: "#ffa94d",
+  docx: "#74c0fc",
+  xlsx: "#69db7c",
 };
 
 const CATEGORY_OPTIONS: { value: SourceTypeValue | "auto"; label: string }[] = [
@@ -54,6 +55,10 @@ const STATUS_BADGE: Record<string, { cls: string; label: string }> = {
 };
 
 const ext = (name: string) => name.split(".").pop()?.toLowerCase() ?? "";
+
+function FileIcon({ name, size = 20 }: { name: string; size?: number }) {
+  return <DocumentText size={size} color={EXT_COLOR[ext(name)]} />;
+}
 
 let counter = 0;
 
@@ -143,8 +148,8 @@ export default function DocumentsPage() {
             Is the backend running? Log in with a real admin account — demo mode
             has no live subjects.
           </p>
-          <button onClick={load} className="btn-ghost">
-            ↻ Retry
+          <button onClick={load} className="btn-ghost inline-flex items-center gap-1.5">
+            <Refresh size={14} /> Retry
           </button>
         </div>
       )}
@@ -356,8 +361,8 @@ function SubjectUploadCard({ subject, demo }: { subject: ApiSubject; demo: boole
     <div className="card p-5 fade-up">
       {/* Subject header + module & category pickers */}
       <div className="flex items-start gap-3 mb-4 flex-wrap">
-        <div className="w-11 h-11 rounded-xl bg-panel-2 border border-line flex items-center justify-center text-xl">
-          📚
+        <div className="w-11 h-11 rounded-xl bg-panel-2 border border-line flex items-center justify-center text-brand-accent">
+          <BookOpen size={20} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
@@ -429,8 +434,14 @@ function SubjectUploadCard({ subject, demo }: { subject: ApiSubject; demo: boole
           className="hidden"
           onChange={(e) => e.target.files && addFiles(e.target.files)}
         />
-        <p className="font-semibold text-sm">
-          {dragging ? "Drop files to upload" : "⬆ Drag & drop or click to browse"}
+        <p className="font-semibold text-sm inline-flex items-center gap-1.5">
+          {dragging ? (
+            "Drop files to upload"
+          ) : (
+            <>
+              <Upload size={15} /> Drag & drop or click to browse
+            </>
+          )}
         </p>
         <p className="text-xs text-faint mt-1">
           PDF, PPTX, DOCX, XLSX · uploading to{" "}
@@ -446,7 +457,9 @@ function SubjectUploadCard({ subject, demo }: { subject: ApiSubject; demo: boole
           {uploads.map((u) => (
             <div key={u.id} className="card p-3.5 fade-up">
               <div className="flex items-center gap-3">
-                <span className="text-xl">{EXT_ICON[ext(u.name)] ?? "📎"}</span>
+                <span className="flex items-center">
+                  <FileIcon name={u.name} />
+                </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium truncate">{u.name}</p>
                   <p className="text-[11px] text-faint">
@@ -495,8 +508,8 @@ function SubjectUploadCard({ subject, demo }: { subject: ApiSubject; demo: boole
                 const badge = STATUS_BADGE[d.status] ?? STATUS_BADGE.uploaded;
                 return (
                   <div key={d.id} className="card p-3 flex items-center gap-3">
-                    <span className="text-lg">
-                      {EXT_ICON[ext(d.original_filename)] ?? "📎"}
+                    <span className="flex items-center">
+                      <FileIcon name={d.original_filename} size={18} />
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="text-[13px] font-medium truncate">

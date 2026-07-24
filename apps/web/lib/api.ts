@@ -160,6 +160,7 @@ export interface ApiSubject {
   semester_id: string;
   credits: number | null;
   is_active: boolean;
+  department_name?: string | null;
 }
 
 export interface ApiModule {
@@ -225,6 +226,13 @@ export type SourceTypeValue =
 export const adminApi = {
   getDashboard: (): Promise<ApiDashboard> =>
     fetchApi("/api/v1/admin/dashboard"),
+
+  getSettings: (): Promise<Record<string, string>> =>
+    fetchApi("/api/v1/admin/settings"),
+
+  updateSettings: (settings: Record<string, string>): Promise<{ message: string }> =>
+    fetchApi("/api/v1/admin/settings", { method: "PUT", body: JSON.stringify(settings) }),
+
   listDepartments: (): Promise<ApiDepartment[]> => fetchApi("/api/v1/admin/departments"),
 
   listArchivedDepartments: (): Promise<ApiDepartment[]> => fetchApi("/api/v1/admin/departments/archived"),
@@ -258,6 +266,17 @@ export const adminApi = {
 
   archiveSubject: (id: string): Promise<{ message: string }> =>
     fetchApi(`/api/v1/admin/subjects/${id}`, { method: "DELETE" }),
+
+  listArchivedSubjects: (): Promise<ApiSubject[]> => fetchApi("/api/v1/admin/subjects/archived"),
+
+  unarchiveSubject: (id: string): Promise<ApiSubject> =>
+    fetchApi(`/api/v1/admin/subjects/${id}/unarchive`, { method: "POST" }),
+
+  deleteSubject: (id: string, code: string): Promise<{ message: string }> =>
+    fetchApi(`/api/v1/admin/subjects/${id}/force`, {
+      method: "DELETE",
+      body: JSON.stringify({ code }),
+    }),
 
   listModules: (subjectId: string): Promise<ApiModule[]> =>
     fetchApi(`/api/v1/admin/modules?subject_id=${encodeURIComponent(subjectId)}`),
@@ -298,6 +317,38 @@ export const adminApi = {
     if (params.topic) form.append("topic", params.topic);
     return fetchApi("/api/v1/admin/documents/upload", { method: "POST", body: form });
   },
+};
+
+// ── Student API ──────────────────────────────────────────────
+
+export interface ApiHistoryItem {
+  id: string;
+  subject_name: string;
+  module_name: string | null;
+  marks: number;
+  question: string;
+  answer_preview: string | null;
+  status: string;
+  created_at: string;
+  is_saved: boolean;
+}
+
+export const studentApi = {
+  listSubjects: (): Promise<ApiSubject[]> => fetchApi("/api/v1/student/subjects"),
+
+  listModules: (subjectId: string): Promise<ApiModule[]> =>
+    fetchApi(`/api/v1/student/subjects/${encodeURIComponent(subjectId)}/modules`),
+
+  getHistory: (pageSize = 20): Promise<ApiHistoryItem[]> =>
+    fetchApi(`/api/v1/student/history?page=1&page_size=${pageSize}`),
+
+  getSavedAnswers: (): Promise<ApiHistoryItem[]> => fetchApi("/api/v1/student/saved-answers"),
+
+  saveAnswer: (id: string): Promise<{ message: string }> =>
+    fetchApi(`/api/v1/student/history/${id}/save`, { method: "POST" }),
+
+  unsaveAnswer: (id: string): Promise<{ message: string }> =>
+    fetchApi(`/api/v1/student/history/${id}/save`, { method: "DELETE" }),
 };
 
 /** Infer the backend SourceType from a filename + admin's chosen category. */

@@ -4,17 +4,30 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
+import {
+  Building,
+  Graph,
+  DocumentText,
+  Ruler,
+  BookOpen,
+  Users,
+  ChatRound,
+  User,
+  Logout2,
+  Menu,
+  type IconComponent,
+} from "reicon-react";
 import { getCurrentUser, isDemoMode, logout } from "@/lib/auth";
 import { hasRealSession } from "@/lib/api";
 
-const navItems = [
-  { icon: "D", label: "Departments", href: "/admin/departments", id: "departments" },
-  { icon: "📊", label: "Dashboard", href: "/admin", id: "dashboard" },
-  { icon: "📄", label: "Documents", href: "/admin/documents", id: "documents" },
-  { icon: "📏", label: "Answer format", href: "/admin/answer-rules", id: "rules" },
-  { icon: "📖", label: "Subjects", href: "/admin/subjects", id: "subjects" },
-  { icon: "👥", label: "Users", href: "/admin/users", id: "users" },
-  { icon: "💬", label: "Feedback", href: "/admin/feedback", id: "feedback" },
+const navItems: { icon: IconComponent; label: string; href: string; id: string }[] = [
+  { icon: Graph, label: "Dashboard", href: "/admin", id: "dashboard" },
+  { icon: Building, label: "Departments", href: "/admin/departments", id: "departments" },
+  { icon: DocumentText, label: "Documents", href: "/admin/documents", id: "documents" },
+  { icon: Ruler, label: "Answer format", href: "/admin/answer-rules", id: "rules" },
+  { icon: BookOpen, label: "Subjects", href: "/admin/subjects", id: "subjects" },
+  { icon: Users, label: "Users", href: "/admin/users", id: "users" },
+  { icon: ChatRound, label: "Feedback", href: "/admin/feedback", id: "feedback" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -77,26 +90,35 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
 
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.id}
-              href={item.href}
-              onClick={() => setOpen(false)}
-              className={`sidebar-item ${isActive(item.href) ? "active" : ""}`}
-            >
-              <span className="sidebar-icon text-base">{item.icon}</span>
-              <span>{item.label}</span>
-            </Link>
-          ))}
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.id}
+                href={item.href}
+                onClick={() => setOpen(false)}
+                className={`sidebar-item ${isActive(item.href) ? "active" : ""}`}
+              >
+                <span className="sidebar-icon">
+                  <Icon size={18} />
+                </span>
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="p-3 border-t border-line space-y-1">
           <Link href="/student/chat" className="sidebar-item">
-            <span className="sidebar-icon text-base">💬</span>
+            <span className="sidebar-icon">
+              <User size={18} />
+            </span>
             <span>Student view</span>
           </Link>
           <button onClick={handleLogout} className="sidebar-item w-full text-left">
-            <span className="sidebar-icon text-base">↩</span>
+            <span className="sidebar-icon">
+              <Logout2 size={18} />
+            </span>
             <span>Sign out</span>
           </button>
         </div>
@@ -104,13 +126,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       <div className="flex-1 flex flex-col min-w-0">
         <header className="lg:hidden flex items-center gap-3 h-14 px-4 border-b border-line bg-panel">
-          <button
-            onClick={() => setOpen(true)}
-            className="w-9 h-9 rounded-lg bg-panel-2 border border-line flex items-center justify-center"
-            aria-label="Open menu"
-          >
-            ☰
-          </button>
+            <button
+              onClick={() => setOpen(true)}
+              className="w-9 h-9 rounded-lg bg-panel-2 border border-line flex items-center justify-center"
+              aria-label="Open menu"
+            >
+              <Menu size={18} />
+            </button>
           <span className="font-bold text-sm">VibeGPT Admin</span>
         </header>
         <main className="flex-1 overflow-y-auto">{children}</main>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Check } from "reicon-react";
 
 interface Rule {
   marks: number;
@@ -201,8 +202,14 @@ export default function AnswerRulesPage() {
             <Toggle label="Require citations" on={rule.requireCitations} onChange={(v) => update({ requireCitations: v })} />
           </div>
 
-          <button onClick={save} className="btn-primary w-full mt-2">
-            {savedTick ? "✓ Saved" : "Save rule"}
+          <button onClick={save} className="btn-primary w-full mt-2 inline-flex items-center justify-center gap-1.5">
+            {savedTick ? (
+              <>
+                <Check size={15} /> Saved
+              </>
+            ) : (
+              "Save rule"
+            )}
           </button>
         </div>
 

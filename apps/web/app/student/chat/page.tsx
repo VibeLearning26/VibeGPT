@@ -2,6 +2,17 @@
 
 import { useState, useRef, useEffect } from "react";
 import {
+  BookOpen,
+  Target,
+  Warning,
+  Check,
+  Copy,
+  Star,
+  Refresh,
+  Sparkles,
+  DocumentText,
+} from "reicon-react";
+import {
   MARKS_OPTIONS,
   ACTIVE_SEMESTERS,
   routeQuestion,
@@ -224,8 +235,8 @@ export default function ChatPage() {
           )}
           {!answer && !loading && (
             <div className="text-center py-16 fade-up">
-              <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-panel border border-line glow-ring flex items-center justify-center text-3xl">
-                📚
+              <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-panel border border-line glow-ring flex items-center justify-center text-brand-accent">
+                <BookOpen size={28} />
               </div>
               <h2 className="text-2xl font-bold mb-2">What would you like to study?</h2>
               <p className="text-sm text-muted max-w-md mx-auto">
@@ -282,12 +293,12 @@ export default function ChatPage() {
               {detected && (
                 <div className="mb-3">
                   {detected.confidence === "high" ? (
-                    <span className="badge badge-success">
-                      🎯 Detected subject: {detected.subject.name} · {detected.module.name}
+                    <span className="badge badge-success inline-flex items-center gap-1.5">
+                      <Target size={13} /> Detected subject: {detected.subject.name} · {detected.module.name}
                     </span>
                   ) : (
-                    <span className="badge badge-warning">
-                      ⚠ Couldn&apos;t confidently match a subject — showing best guess:{" "}
+                    <span className="badge badge-warning inline-flex items-center gap-1.5">
+                      <Warning size={13} /> Couldn&apos;t confidently match a subject — showing best guess:{" "}
                       {detected.subject.name}
                     </span>
                   )}
@@ -308,23 +319,36 @@ export default function ChatPage() {
 
               {/* Actions */}
               <div className="flex flex-wrap items-center gap-2 mt-3">
-                <button onClick={copy} className="btn-ghost">
-                  {copied ? "✓ Copied" : "⧉ Copy"}
+                <button onClick={copy} className="btn-ghost inline-flex items-center gap-1.5">
+                  {copied ? (
+                    <>
+                      <Check size={14} /> Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={14} /> Copy
+                    </>
+                  )}
                 </button>
                 <button
                   onClick={() => setSaved((s) => !s)}
-                  className="btn-ghost"
+                  className="btn-ghost inline-flex items-center gap-1.5"
                   style={saved ? { color: "#ff2a2a", borderColor: "rgba(229,9,20,0.5)" } : undefined}
                 >
-                  {saved ? "★ Saved" : "☆ Save"}
+                  <Star size={14} weight={saved ? "Filled" : "Outline"} />
+                  {saved ? "Saved" : "Save"}
                 </button>
-                <button onClick={regenerate} className="btn-ghost">↻ Regenerate</button>
-                <button onClick={simplify} className="btn-ghost">✦ Simplify</button>
+                <button onClick={regenerate} className="btn-ghost inline-flex items-center gap-1.5">
+                  <Refresh size={14} /> Regenerate
+                </button>
+                <button onClick={simplify} className="btn-ghost inline-flex items-center gap-1.5">
+                  <Sparkles size={14} /> Simplify
+                </button>
                 <button
                   onClick={() => setShowSources((v) => !v)}
-                  className="btn-ghost ml-auto"
+                  className="btn-ghost inline-flex items-center gap-1.5 ml-auto"
                 >
-                  📄 Sources ({answer.sources.length})
+                  <DocumentText size={14} /> Sources ({answer.sources.length})
                 </button>
               </div>
 

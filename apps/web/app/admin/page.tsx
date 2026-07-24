@@ -1,113 +1,155 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { adminApi, type ApiDashboard, type ApiDocument } from "@/lib/api";
+import {
+  DocumentText,
+  Clock,
+  Eye,
+  XCircle,
+  Users,
+  ChatRound,
+  Bolt,
+  Warning,
+  Settings,
+  Upload,
+  Ruler,
+  BookOpen,
+  type IconComponent,
+} from "reicon-react";
+import { adminApi, type ApiDocument } from "@/lib/api";
+
+interface Stats {
+  published: number;
+  pending: number;
+  review: number;
+  failed: number;
+  students: number;
+  questionsToday: number;
+  avgMs: number;
+  lowRated: number;
+}
 
 const statusBadge: Record<string, string> = {
   published: "badge-success",
   processing: "badge-warning",
-  ready: "badge-warning",
   uploaded: "badge-neutral",
   needs_review: "badge-neutral",
+  ready: "badge-success",
   failed: "badge-error",
 };
 
-function formatStatus(status: string) {
-  return status.replaceAll("_", " ");
-}
+const SETTING_LABELS: Record<string, string> = {
+  max_questions_per_day: "Max questions per user / day",
+  max_concurrent_sessions: "Max concurrent sessions",
+  api_rate_limit: "API rate limit",
+};
 
-function formatWhen(value: string) {
-  const created = new Date(value);
-  if (Number.isNaN(created.getTime())) return "";
-  return created.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+function QuickConfig() {
+  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    adminApi
+      .getSettings()
+      .then(setSettings)
+      .catch((err) => setError(err instanceof Error ? err.message : "Unable to load settings"));
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    setMessage(null);
+    setError(null);
+    try {
+      await adminApi.updateSettings(settings);
+      setMessage("Settings saved");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save settings");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="panel p-5">
+      <h2 className="font-semibold mb-4 flex items-center gap-2">
+        <Settings size={16} className="text-brand-accent" />
+        Quick config
+      </h2>
+      <div className="space-y-3">
+        {Object.entries(settings).map(([key, value]) => (
+          <div key={key}>
+            <label className="field-label" htmlFor={`cfg-${key}`}>
+              {SETTING_LABELS[key] ?? key.replace(/_/g, " ")}
+            </label>
+            <input
+              id={`cfg-${key}`}
+              className="input mt-1"
+              value={value}
+              onChange={(e) => setSettings((current) => ({ ...current, [key]: e.target.value }))}
+            />
+          </div>
+        ))}
+      </div>
+      {message && <p className="text-xs text-brand-accent mt-3">{message}</p>}
+      {error && <p className="text-xs text-[var(--color-err)] mt-3">{error}</p>}
+      <button className="btn-primary mt-4 w-full" onClick={save} disabled={saving}>
+        {saving ? "Saving..." : "Save configuration"}
+      </button>
+    </div>
+  );
 }
 
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<ApiDashboard | null>(null);
-  const [uploads, setUploads] = useState<ApiDocument[]>([]);
-  const [error, setError] = useState("");
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [recentUploads, setRecentUploads] = useState<ApiDocument[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadDashboard() {
-      setLoading(true);
-      setError("");
-      try {
-        const [dashboard, documents] = await Promise.all([
-          adminApi.getDashboard(),
-          adminApi.listDocuments(),
-        ]);
-        if (cancelled) return;
-        setStats(dashboard);
-        setUploads(documents.slice(0, 5));
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unable to load dashboard");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadDashboard();
+    let active = true;
+    const t = setTimeout(() => {
+      void Promise.all([adminApi.getDashboard(), adminApi.listDocuments()])
+        .then(([dashboard, documents]) => {
+          if (!active) return;
+          setStats({
+            published: dashboard.published_documents,
+            pending: dashboard.pending_documents,
+            review: dashboard.review_documents,
+            failed: dashboard.failed_jobs,
+            students: dashboard.total_students,
+            questionsToday: dashboard.questions_today,
+            avgMs: Math.round(dashboard.avg_processing_ms),
+            lowRated: dashboard.low_rated_answers,
+          });
+          setRecentUploads(documents.slice(0, 5));
+          setError(null);
+        })
+        .catch((loadError) => {
+          if (!active) return;
+          setError(loadError instanceof Error ? loadError.message : "Failed to load dashboard");
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 0);
     return () => {
-      cancelled = true;
+      active = false;
+      clearTimeout(t);
     };
   }, []);
 
-  const cards = [
-    {
-      label: "Published documents",
-      value: stats?.published_documents,
-      icon: "Doc",
-      accent: false,
-    },
-    {
-      label: "Awaiting processing",
-      value: stats?.pending_documents,
-      icon: "Wait",
-      accent: false,
-    },
-    {
-      label: "Needs review",
-      value: stats?.review_documents,
-      icon: "Review",
-      accent: false,
-    },
-    {
-      label: "Failed jobs",
-      value: stats?.failed_jobs,
-      icon: "Fail",
-      accent: true,
-    },
-    {
-      label: "Total students",
-      value: stats?.total_students,
-      icon: "Users",
-      accent: false,
-    },
-    {
-      label: "Questions today",
-      value: stats?.questions_today,
-      icon: "Chat",
-      accent: false,
-    },
-    {
-      label: "Avg processing",
-      value: stats?.avg_processing_ms,
-      icon: "Fast",
-      accent: false,
-      suffix: "ms",
-    },
-    {
-      label: "Low-rated answers",
-      value: stats?.low_rated_answers,
-      icon: "Low",
-      accent: true,
-    },
+  const cards: { label: string; key: keyof Stats; icon: IconComponent; accent?: boolean; suffix?: string }[] = [
+    { label: "Published documents", key: "published", icon: DocumentText },
+    { label: "Awaiting processing", key: "pending", icon: Clock },
+    { label: "Needs review", key: "review", icon: Eye },
+    { label: "Failed jobs", key: "failed", icon: XCircle, accent: true },
+    { label: "Total students", key: "students", icon: Users },
+    { label: "Questions today", key: "questionsToday", icon: ChatRound },
+    { label: "Avg processing", key: "avgMs", icon: Bolt, suffix: "ms" },
+    { label: "Low-rated answers", key: "lowRated", icon: Warning, accent: true },
   ];
 
   return (
@@ -118,44 +160,47 @@ export default function AdminDashboard() {
           <p className="text-sm text-muted mt-1">Overview of your VibeGPT knowledge base</p>
         </div>
         <Link href="/admin/documents" className="btn-primary">
-          + Upload material
+          <Upload size={16} /> Upload material
         </Link>
       </div>
 
       {error && (
-        <div className="panel p-4 mb-5 text-sm text-err" role="alert">
-          {error}
+        <div className="panel p-4 mb-5 text-sm text-[var(--color-err)]">
+          Unable to load dashboard: {error}
         </div>
       )}
 
+      {/* Stats grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-9">
-        {cards.map((card) => (
-          <div key={card.label} className="card card-hover p-5">
-            <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center text-[11px] font-semibold mb-4 border ${
-                card.accent
-                  ? "bg-[rgba(229,9,20,0.1)] border-[rgba(229,9,20,0.3)]"
-                  : "bg-panel-2 border-line"
-              }`}
-            >
-              {card.icon}
+        {cards.map((c) => {
+          const Icon = c.icon;
+          return (
+            <div key={c.key} className="card card-hover p-5">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 border ${
+                  c.accent
+                    ? "bg-[rgba(229,9,20,0.1)] border-[rgba(229,9,20,0.3)] text-[var(--color-err)]"
+                    : "bg-panel-2 border-line text-brand-accent"
+                }`}
+              >
+                <Icon size={18} />
+              </div>
+              {loading || !stats ? (
+                <div className="skeleton h-7 w-16 mb-2" />
+              ) : (
+                <p className={`text-2xl font-extrabold ${c.accent ? "text-brand-accent" : ""}`}>
+                  {stats[c.key]}
+                  {c.suffix ? <span className="text-sm text-faint ml-0.5">{c.suffix}</span> : null}
+                </p>
+              )}
+              <p className="text-xs text-faint mt-1">{c.label}</p>
             </div>
-            {loading ? (
-              <div className="skeleton h-7 w-16 mb-2" />
-            ) : (
-              <p className={`text-2xl font-extrabold ${card.accent ? "text-brand-accent" : ""}`}>
-                {card.value ?? 0}
-                {"suffix" in card && card.suffix ? (
-                  <span className="text-sm text-faint ml-0.5">{card.suffix}</span>
-                ) : null}
-              </p>
-            )}
-            <p className="text-xs text-faint mt-1">{card.label}</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="grid lg:grid-cols-3 gap-5">
+        {/* Recent uploads */}
         <div className="lg:col-span-2 panel p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold">Recent uploads</h2>
@@ -164,55 +209,63 @@ export default function AdminDashboard() {
             </Link>
           </div>
           <div className="space-y-2">
-            {loading ? (
-              Array.from({ length: 4 }).map((_, index) => (
-                <div key={index} className="skeleton h-12 w-full" />
-              ))
-            ) : uploads.length === 0 ? (
-              <div className="rounded-xl bg-panel-2 border border-line-soft px-3.5 py-6 text-center text-sm text-muted">
-                No uploads yet.
-              </div>
-            ) : (
-              uploads.map((upload) => (
-                <div
-                  key={upload.id}
-                  className="flex items-center gap-3 px-3.5 py-3 rounded-xl bg-panel-2 border border-line-soft"
-                >
-                  <span className="badge badge-neutral">File</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-medium truncate">{upload.document_name}</p>
-                    <p className="text-[11px] text-faint">{formatWhen(upload.created_at)}</p>
+            {loading
+              ? Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="skeleton h-12 w-full" />
+                ))
+              : recentUploads.map((u) => (
+                  <div
+                    key={u.id}
+                    className="flex items-center gap-3 px-3.5 py-3 rounded-xl bg-panel-2 border border-line-soft"
+                  >
+                    <DocumentText size={18} className="text-faint shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium truncate">{u.document_name}</p>
+                      <p className="text-[11px] text-faint">
+                        {new Date(u.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                    <span className={`badge ${statusBadge[u.status] ?? "badge-neutral"}`}>
+                      {u.status.replace("_", " ")}
+                    </span>
                   </div>
-                  <span className={`badge ${statusBadge[upload.status] ?? "badge-neutral"}`}>
-                    {formatStatus(upload.status)}
-                  </span>
-                </div>
-              ))
+                ))}
+            {!loading && recentUploads.length === 0 && (
+              <p className="text-sm text-faint py-6 text-center">No documents uploaded yet.</p>
             )}
           </div>
         </div>
 
+        {/* Quick actions */}
         <div className="panel p-5">
           <h2 className="font-semibold mb-4">Quick actions</h2>
           <div className="space-y-2">
             {[
-              { label: "Upload PDF / PPT / DOCX", href: "/admin/documents", icon: "Upload" },
-              { label: "Configure answer format", href: "/admin/answer-rules", icon: "Rules" },
-              { label: "Manage subjects", href: "/admin/subjects", icon: "Subjects" },
-              { label: "Review feedback", href: "/admin/feedback", icon: "Feedback" },
-            ].map((action) => (
-              <Link
-                key={action.label}
-                href={action.href}
-                className="flex items-center gap-3 px-3.5 py-3 rounded-xl bg-panel-2 border border-line-soft hover:border-[rgba(229,9,20,0.4)] transition"
-              >
-                <span className="badge badge-neutral">{action.icon}</span>
-                <span className="text-[13px] font-medium">{action.label}</span>
-                <span className="ml-auto text-faint">Go</span>
-              </Link>
-            ))}
+              { label: "Upload PDF / PPT / DOCX", href: "/admin/documents", icon: Upload },
+              { label: "Configure answer format", href: "/admin/answer-rules", icon: Ruler },
+              { label: "Manage subjects", href: "/admin/subjects", icon: BookOpen },
+              { label: "Review feedback", href: "/admin/feedback", icon: ChatRound },
+            ].map((a) => {
+              const Icon = a.icon;
+              return (
+                <Link
+                  key={a.label}
+                  href={a.href}
+                  className="flex items-center gap-3 px-3.5 py-3 rounded-xl bg-panel-2 border border-line-soft hover:border-[rgba(229,9,20,0.4)] transition"
+                >
+                  <Icon size={18} className="text-brand-accent" />
+                  <span className="text-[13px] font-medium">{a.label}</span>
+                  <span className="ml-auto text-faint">→</span>
+                </Link>
+              );
+            })}
           </div>
         </div>
+      </div>
+
+      {/* Quick config hub */}
+      <div className="grid lg:grid-cols-3 gap-5 mt-5">
+        <QuickConfig />
       </div>
     </div>
   );

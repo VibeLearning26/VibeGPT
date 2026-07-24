@@ -31,6 +31,7 @@ from app.models.academic import (
     Semester,
     Subject,
 )
+from app.models.answer_rule import AnswerRule
 from app.models.document import (
     Document,
     DocumentProcessingJob,
@@ -39,7 +40,7 @@ from app.models.document import (
     SourceType,
 )
 from app.models.question import Feedback, QuestionLog
-from app.models.system import AuditLog
+from app.models.system import AuditLog, SystemSetting
 from app.models.user import User, UserRole
 from app.schemas.academic import (
     AcademicYearCreate,
@@ -109,6 +110,41 @@ async def get_dashboard(current_user: AdminUser, db: DbSession):
         "avg_processing_ms": round(avg_time.scalar() or 0),
         "low_rated_answers": low_rated.scalar() or 0,
     }
+
+
+# ── Quick Config / System Settings ───────────────────────────
+
+DEFAULT_SETTINGS: dict[str, str] = {
+    "max_questions_per_day": "50",
+    "max_concurrent_sessions": "100",
+    "api_rate_limit": "20/minute",
+}
+
+
+@router.get("/settings", response_model=dict[str, str])
+async def get_system_settings(current_user: AdminUser, db: DbSession):
+    """Return all configurable settings, merged over defaults."""
+    rows = (await db.execute(select(SystemSetting))).scalars().all()
+    merged = {**DEFAULT_SETTINGS, **{row.key: row.value or "" for row in rows}}
+    return merged
+
+
+@router.put("/settings", response_model=MessageResponse)
+async def update_system_settings(
+    body: dict[str, str], current_user: AdminUser, db: DbSession
+):
+    """Create or update configurable settings."""
+    for key, value in body.items():
+        row = (
+            await db.execute(select(SystemSetting).where(SystemSetting.key == key))
+        ).scalar_one_or_none()
+        if row is not None:
+            row.value = value
+            row.updated_by = current_user.id
+        else:
+            db.add(SystemSetting(key=key, value=value, updated_by=current_user.id))
+    await db.flush()
+    return MessageResponse(message="Settings updated")
 
 
 # ── Departments CRUD ─────────────────────────────────────────
@@ -281,6 +317,63 @@ async def archive_subject(subject_id: UUID, current_user: AdminUser, db: DbSessi
     subj.archived_at = datetime.now(UTC)
     await db.flush()
     return MessageResponse(message="Subject archived")
+
+
+@router.get("/subjects/archived", response_model=list[SubjectResponse])
+async def list_archived_subjects(current_user: AdminUser, db: DbSession):
+    result = await db.execute(
+        select(Subject).where(Subject.archived_at.is_not(None)).order_by(Subject.name)
+    )
+    return [SubjectResponse.model_validate(s) for s in result.scalars().all()]
+
+
+@router.post("/subjects/{subject_id}/unarchive", response_model=SubjectResponse)
+async def unarchive_subject(subject_id: UUID, current_user: AdminUser, db: DbSession):
+    result = await db.execute(select(Subject).where(Subject.id == subject_id))
+    subj = result.scalar_one_or_none()
+    if not subj:
+        raise NotFoundError("Subject")
+    subj.archived_at = None
+    await db.flush()
+    await db.refresh(subj)
+    return SubjectResponse.model_validate(subj)
+
+
+class SubjectDeleteRequest(BaseModel):
+    code: str
+
+
+@router.delete("/subjects/{subject_id}/force", response_model=MessageResponse)
+async def delete_subject(
+    subject_id: UUID, body: SubjectDeleteRequest, current_user: AdminUser, db: DbSession
+):
+    result = await db.execute(select(Subject).where(Subject.id == subject_id))
+    subj = result.scalar_one_or_none()
+    if not subj:
+        raise NotFoundError("Subject")
+    if subj.code != body.code.strip().upper():
+        raise ValidationError("Subject code does not match")
+    doc_count = (
+        await db.execute(
+            select(func.count()).select_from(Document).where(Document.subject_id == subject_id)
+        )
+    ).scalar() or 0
+    if doc_count > 0:
+        raise ValidationError(
+            f"Cannot delete subject: {doc_count} document(s) are still linked to it"
+        )
+    rule_count = (
+        await db.execute(
+            select(func.count()).select_from(AnswerRule).where(AnswerRule.subject_id == subject_id)
+        )
+    ).scalar() or 0
+    if rule_count > 0:
+        raise ValidationError(
+            f"Cannot delete subject: {rule_count} answer rule(s) are still linked to it"
+        )
+    await db.delete(subj)
+    await db.flush()
+    return MessageResponse(message="Subject permanently deleted")
 
 
 # ── Modules CRUD ─────────────────────────────────────────────
